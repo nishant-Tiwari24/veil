@@ -39,41 +39,68 @@ function displayUrl(url) {
   return url
 }
 
+// Tab elements are kept and updated in place, never rebuilt: a click is
+// mousedown + mouseup on the same element, so replacing the × between the two
+// (every state update did) swallowed the click.
+const tabEls = new Map() // id -> { n, iconSlot, title, key }
+
+function createTabEl(id) {
+  const n = el('div', 'tab')
+  const iconSlot = el('span')
+  iconSlot.style.display = 'contents'
+  const title = el('span', 'title')
+  const close = el('button', 'close', '×')
+  close.title = 'Close tab'
+  close.onmousedown = e => e.stopPropagation() // don't activate the tab we're closing
+  close.onclick = e => { e.stopPropagation(); api.invoke('closeTab', id) }
+  n.append(iconSlot, title, close)
+  n.onmousedown = e => { if (e.button === 0 && id !== state.activeId) api.invoke('activate', id) }
+  n.onauxclick = e => { if (e.button === 1) api.invoke('closeTab', id) }
+  n.oncontextmenu = e => { e.preventDefault(); api.invoke('tabMenu', id) }
+  // drag to reorder
+  n.draggable = true
+  n.ondragstart = e => { dragId = id; n.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move' }
+  n.ondragend = () => { dragId = null; n.classList.remove('dragging') }
+  n.ondragover = e => { if (dragId != null) e.preventDefault() }
+  n.ondrop = e => {
+    e.preventDefault()
+    if (dragId == null || dragId === id) return
+    api.invoke('moveTab', dragId, state.tabs.findIndex(x => x.id === id))
+  }
+  return { n, iconSlot, title, key: null }
+}
+
+function renderTabs() {
+  const container = $('tabs')
+  const live = new Set(state.tabs.map(t => t.id))
+  for (const [id, t] of tabEls) if (!live.has(id)) { t.n.remove(); tabEls.delete(id) }
+
+  state.tabs.forEach((t, i) => {
+    let te = tabEls.get(t.id)
+    if (!te) { te = createTabEl(t.id); tabEls.set(t.id, te) }
+    te.n.classList.toggle('active', t.id === state.activeId)
+    te.n.title = `${t.title || ''}\n${t.url || ''}`
+    te.title.textContent = t.title || 'New Tab'
+
+    const key = t.loading ? 'loading' : t.favicon || siteIcon(t.site)
+    if (key !== te.key) {
+      te.key = key
+      if (t.loading) te.iconSlot.replaceChildren(el('span', 'throbber'))
+      else if (t.favicon) {
+        const img = el('img', 'favicon')
+        img.src = t.favicon
+        img.onerror = () => img.replaceWith(icon(siteIcon(t.site), `ico ${siteIcon(t.site)}`))
+        te.iconSlot.replaceChildren(img)
+      } else te.iconSlot.replaceChildren(icon(siteIcon(t.site), `ico ${siteIcon(t.site)}`))
+    }
+    if (container.children[i] !== te.n) container.insertBefore(te.n, container.children[i] || null)
+  })
+}
+
 function render() {
   const active = state.tabs.find(t => t.id === state.activeId)
 
-  // tabs
-  const tabs = $('tabs')
-  tabs.replaceChildren(...state.tabs.map(t => {
-    const n = el('div', 'tab' + (t.id === state.activeId ? ' active' : ''))
-    n.title = `${t.title || ''}\n${t.url || ''}`
-    if (t.loading) n.append(el('span', 'throbber'))
-    else if (t.favicon) {
-      const img = el('img', 'favicon')
-      img.src = t.favicon
-      img.onerror = () => img.replaceWith(icon(siteIcon(t.site), `ico ${siteIcon(t.site)}`))
-      n.append(img)
-    } else n.append(icon(siteIcon(t.site), `ico ${siteIcon(t.site)}`))
-    n.append(el('span', 'title', t.title || 'New Tab'))
-    const close = el('button', 'close', '×')
-    close.title = 'Close tab'
-    close.onclick = e => { e.stopPropagation(); api.invoke('closeTab', t.id) }
-    n.append(close)
-    n.onmousedown = e => { if (e.button === 0) api.invoke('activate', t.id) }
-    n.onauxclick = e => { if (e.button === 1) api.invoke('closeTab', t.id) }
-    n.oncontextmenu = e => { e.preventDefault(); api.invoke('tabMenu', t.id) }
-    // drag to reorder
-    n.draggable = true
-    n.ondragstart = e => { dragId = t.id; n.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move' }
-    n.ondragend = () => { dragId = null; n.classList.remove('dragging') }
-    n.ondragover = e => { if (dragId != null) e.preventDefault() }
-    n.ondrop = e => {
-      e.preventDefault()
-      if (dragId == null || dragId === t.id) return
-      api.invoke('moveTab', dragId, state.tabs.findIndex(x => x.id === t.id))
-    }
-    return n
-  }))
+  renderTabs()
 
   // nav
   $('back').disabled = !active?.canBack
