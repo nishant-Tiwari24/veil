@@ -54,6 +54,9 @@ VEIL_SELFTEST=1 npm start
 - Live circuit map, New Identity (⌘⇧U), New Circuit (⌘⇧L), **Panic** (⌘⇧X)
 - **See onion routing** (⌘⇧O): an animated view of your real circuit, with a packet
   losing one encryption layer per relay, who-sees-what, and live traffic from tor
+- **Ad & tracker blocking** (EasyList + EasyPrivacy): the same built-in list for
+  every user so it can't fingerprint you; shield badge shows the count, click to
+  allow ads on a site for this session
 - Built-in leak test
 - Community Hub: signed directory, invite-only sites, one-click onion hosting
 
@@ -71,6 +74,11 @@ doesn't support bridges yet.
 
 ## Docs
 - [Plan](docs/PLAN.md) · [Architecture](docs/ARCHITECTURE.md) · [ADRs](docs/adr) · [TODO](docs/TODO.md)
+
+## Updating the ad-block list
+```bash
+npm run adblock:update   # rebuilds assets/adblock.engine; do this before each release
+```
 
 ## Community directory
 ```bash
