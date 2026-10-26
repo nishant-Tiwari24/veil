@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "community:keygen": "node scripts/community-keygen.js",
-    "community:sign": "node scripts/community-sign.js"
+    "community:sign": "node scripts/community-sign.js",
+    "adblock:update": "node scripts/adblock-update.js"
   },
   "author": "",
   "license": "MIT",
@@ -18,6 +19,7 @@
     "electron": "^45.0.0"
   },
   "dependencies": {
+    "@ghostery/adblocker": "^2.20.1",
     "tldts": "^7.4.19"
   }
 }
