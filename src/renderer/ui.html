@@ -2,65 +2,92 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
 <title>Veil</title>
 <link rel="stylesheet" href="ui.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute">
+    <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-reload" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12.5 1.5v4h-4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-onion" viewBox="0 0 16 16"><path d="M8 2.5c-3 1.6-5 3.9-5 6.6A5 5 0 0 0 13 9.1c0-2.7-2-5-5-6.6Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 5c-1.4 1-2.4 2.4-2.4 4.1a2.4 2.4 0 0 0 4.8 0C10.4 7.4 9.4 6 8 5Z" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M8 1v2" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-veil" viewBox="0 0 16 16"><path d="M2 3h12v3c0 4-3 6.5-6 7.5C5 12.5 2 10 2 6Z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-star" viewBox="0 0 16 16"><path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-star-on" viewBox="0 0 16 16"><path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-up" viewBox="0 0 16 16"><path d="m3 10 5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-down" viewBox="0 0 16 16"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-page" viewBox="0 0 16 16"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5Z" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+  </svg>
+
   <header id="toolbar">
     <div id="tabrow">
       <div id="tabs"></div>
-      <button id="newtab" class="icon" title="New tab (⌘T)">+</button>
+      <button id="newtab" title="New tab (⌘T)">+</button>
       <div class="spacer"></div>
-      <div id="torpill" class="pill"><span class="dot"></span><span id="tortext">Starting tor</span></div>
+      <div id="toast" hidden></div>
+      <div id="torstatus"><span class="dot"></span><span id="tortext">tor: starting</span></div>
     </div>
     <div id="navrow">
-      <button id="back" class="icon" title="Back">‹</button>
-      <button id="forward" class="icon" title="Forward">›</button>
-      <button id="reload" class="icon" title="Reload (⌘R)">↻</button>
+      <button id="back" class="btn" title="Back"><svg><use href="#i-back"/></svg></button>
+      <button id="forward" class="btn" title="Forward"><svg><use href="#i-fwd"/></svg></button>
+      <button id="reload" class="btn" title="Reload (⌘R)"><svg><use id="reloadicon" href="#i-reload"/></svg></button>
       <form id="addressform">
-        <span id="siteicon" title=""></span>
-        <input id="address" spellcheck="false" autocomplete="off" placeholder="Search privately or enter an address">
+        <svg id="siteicon"><use href="#i-veil"/></svg>
+        <input id="address" list="suggest" spellcheck="false" autocomplete="off" placeholder="Search privately or type an address">
+        <datalist id="suggest"></datalist>
+        <button type="button" id="onionbtn" hidden title="This site has an onion version — open it">.onion available</button>
+        <button type="button" id="zoombadge" hidden title="Reset zoom"></button>
+        <button type="button" id="starbtn" title="Bookmark this page (⌘D)"><svg><use id="staricon" href="#i-star"/></svg></button>
       </form>
-      <select id="level" title="Security level">
+      <select id="level" class="btn" title="Security level">
         <option value="standard">Standard</option>
         <option value="safer">Safer</option>
         <option value="safest">Safest</option>
       </select>
-      <button id="circuitbtn" class="tool" title="Show this site's Tor circuit">🧅 Circuit</button>
-      <button id="identitybtn" class="tool" title="New Identity (⌘⇧U)">New Identity</button>
-      <button id="panicbtn" class="tool danger" title="Panic: wipe everything (⌘⇧X)">Panic</button>
+      <button id="circuitbtn" class="btn text" title="Show this site's Tor circuit">Circuit</button>
+      <button id="identitybtn" class="btn text" title="New Identity (⌘⇧U)">New Identity</button>
+      <button id="panicbtn" class="btn text" title="Panic: wipe everything (⌘⇧X)">Panic</button>
     </div>
+    <form id="findbar" hidden>
+      <input id="findinput" spellcheck="false" autocomplete="off" placeholder="Find in page">
+      <span id="findcount"></span>
+      <button type="button" id="findprev" class="btn" title="Previous (⌘⇧G)"><svg><use href="#i-up"/></svg></button>
+      <button type="button" id="findnext" class="btn" title="Next (⌘G)"><svg><use href="#i-down"/></svg></button>
+      <button type="button" id="findclose" class="btn" title="Close (Esc)"><svg><use href="#i-stop"/></svg></button>
+    </form>
     <div id="progress"><div id="progressbar"></div></div>
   </header>
 
   <main id="stage">
     <div id="errorview" hidden>
       <div class="errorcard">
-        <div class="erroricon">🧅</div>
-        <h1 id="errortitle">This page couldn't load</h1>
+        <h1 id="errortitle">This webpage is not available.</h1>
         <p id="errortext"></p>
-        <button id="retry" class="tool">Try again</button>
+        <p class="hint">The site may be offline, or the onion service may still be publishing. Try a new circuit.</p>
+        <button id="retry" class="btn text">Reload</button>
       </div>
     </div>
   </main>
 
   <aside id="panel" hidden>
     <div class="panelhead">
-      <h2>Tor circuit</h2>
-      <button id="closepanel" class="icon" title="Close">×</button>
+      <span>Tor circuit</span>
+      <button id="closepanel" class="btn" title="Close"><svg><use href="#i-stop"/></svg></button>
     </div>
-    <p id="panelsite" class="muted"></p>
-    <ol id="hops"></ol>
-    <p id="panelnote" class="muted small"></p>
-    <div class="panelactions">
-      <button id="newcircuit" class="tool">New circuit for this site</button>
-    </div>
-    <div class="explain small muted">
-      <p><b>Guard</b> knows your IP, not where you're going.</p>
-      <p><b>Middle</b> knows neither.</p>
-      <p><b>Exit</b> knows the site, not who you are.</p>
-      <p>Each site gets its own circuit, so sites can't link you by IP.</p>
+    <div class="panelbody">
+      <p id="panelsite"></p>
+      <ol id="hops"></ol>
+      <p id="panelnote"></p>
+      <button id="newcircuit" class="btn text">New circuit for this site</button>
+      <div class="explain">
+        <p><b>Guard</b> knows your IP, not where you're going.</p>
+        <p><b>Middle</b> knows neither.</p>
+        <p><b>Exit</b> knows the site, not who you are.</p>
+        <p>Each site gets its own circuit, so sites can't link you by IP.</p>
+      </div>
     </div>
   </aside>
   <script src="ui.js"></script>
