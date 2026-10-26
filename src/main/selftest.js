@@ -36,7 +36,10 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   const fp = await pageProbe(tab)
   check('timezone is UTC', fp.offset === 0, `${fp.tz}, offset ${fp.offset}`)
   check('WebRTC removed', fp.rtc === 'undefined')
-  check('platform spoofed', fp.platform === 'Win32')
+  check('OS family consistent (UA vs platform)', fp.uaMac === (fp.platform === 'MacIntel'), fp.platform)
+  check('navigator.connection & serviceWorker removed', !fp.connection && !fp.serviceWorker)
+  check('WebGL2 disabled', !fp.webgl2)
+  check('timer coarsened to 16.67 ms', fp.timer >= 16, `${fp.timer.toFixed(2)} ms`)
   check('screen = viewport', fp.screen === fp.inner, `${fp.screen} / ${fp.inner}`)
 
   // --- everyday browser features ---
@@ -86,10 +89,22 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   await waitFor(() => adTab.view && !adTab.loading && adTab.title !== 'New Tab', 90000, 'ad page').catch(() => {})
   await new Promise(r => setTimeout(r, 3000))
   check('ads & trackers blocked on a real page', adTab.blocked > 0, `${adTab.blocked} blocked on theguardian.com`)
-  await new Promise(r => setTimeout(r, 600))
+  browser.ui.activate(adTab.id)
+  await waitFor(() => browser.uiView.webContents.executeJavaScript('state.activeId').then(id => id === adTab.id), 10000, 'ui state').catch(() => {})
+  await new Promise(r => setTimeout(r, 400))
   const badge = await browser.uiView.webContents.executeJavaScript(
     `({ hidden: document.getElementById('adblockbtn').hidden, text: document.getElementById('adblockcount').textContent })`)
   check('shield badge shows the count in the toolbar', !badge.hidden && Number(badge.text) === adTab.blocked, `badge: ${badge.text}`)
+
+  // HTTPS-Only mode: a plain http:// address must end up on https://
+  const upTab = createTab('http://example.com/')
+  await waitFor(() => upTab.view && !upTab.loading && upTab.url.startsWith('https://'), 60000, 'https upgrade').catch(() => {})
+  check('HTTPS-Only upgrades http:// to https://', upTab.url.startsWith('https://example.com'), upTab.url)
+
+  // ExtendedErrors: a malformed onion gets a specific explanation, not a generic error
+  const badOnion = createTab('http://' + 'a'.repeat(56) + '.onion/')
+  await waitFor(() => badOnion.error, 60000, 'onion error').catch(() => {})
+  check('specific onion error message', /onion/i.test(badOnion.error || ''), badOnion.error)
 
   const olTab = createTab('https://www.torproject.org/')
   const ol = await waitFor(() => olTab.onionLocation, 60000, 'Onion-Location').catch(() => null)
@@ -111,6 +126,21 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
     return false
   }, 300000, 'onion site').catch(() => false)
   check('invite-only onion site reachable over Tor', reached)
+
+  // Referer: an .onion page embeds a normal site; that site must not learn the onion address
+  // (uses our own hosted onion page: no CSP getting in the way)
+  const onionPage = onionTab
+  await onionPage.view.webContents.executeJavaScript(`(() => {
+    const f = document.createElement('iframe'); f.src = 'https://httpbin.org/headers'; document.body.append(f)
+  })()`).catch(() => {})
+  const echoed = await waitFor(async () => {
+    const frame = onionPage.view.webContents.mainFrame.framesInSubtree.find(f => f.url.startsWith('https://httpbin.org'))
+    const text = frame && await frame.executeJavaScript('document.body ? document.body.innerText : ""').catch(() => '')
+    try { return JSON.parse(text).headers } catch { return null }
+  }, 90000, 'httpbin echo').catch(() => null)
+  check('onion address never leaks via Referer', !!echoed && !/onion/.test(echoed.Referer || ''),
+    echoed ? `httpbin saw Referer: ${echoed.Referer || '(none)'}` : 'httpbin frame did not load')
+
 
   const failed = results.filter(r => !r).length
   console.log(failed ? `\n${failed} check(s) FAILED` : '\nALL CHECKS PASSED')
