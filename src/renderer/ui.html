@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Veil</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <header id="toolbar">
+    <div id="tabrow">
+      <div id="tabs"></div>
+      <button id="newtab" class="icon" title="New tab (⌘T)">+</button>
+      <div class="spacer"></div>
+      <div id="torpill" class="pill"><span class="dot"></span><span id="tortext">Starting tor</span></div>
+    </div>
+    <div id="navrow">
+      <button id="back" class="icon" title="Back">‹</button>
+      <button id="forward" class="icon" title="Forward">›</button>
+      <button id="reload" class="icon" title="Reload (⌘R)">↻</button>
+      <form id="addressform">
+        <span id="siteicon" title=""></span>
+        <input id="address" spellcheck="false" autocomplete="off" placeholder="Search privately or enter an address">
+      </form>
+      <select id="level" title="Security level">
+        <option value="standard">Standard</option>
+        <option value="safer">Safer</option>
+        <option value="safest">Safest</option>
+      </select>
+      <button id="circuitbtn" class="tool" title="Show this site's Tor circuit">🧅 Circuit</button>
+      <button id="identitybtn" class="tool" title="New Identity (⌘⇧U)">New Identity</button>
+      <button id="panicbtn" class="tool danger" title="Panic: wipe everything (⌘⇧X)">Panic</button>
+    </div>
+    <div id="progress"><div id="progressbar"></div></div>
+  </header>
+
+  <main id="stage">
+    <div id="errorview" hidden>
+      <div class="errorcard">
+        <div class="erroricon">🧅</div>
+        <h1 id="errortitle">This page couldn't load</h1>
+        <p id="errortext"></p>
+        <button id="retry" class="tool">Try again</button>
+      </div>
+    </div>
+  </main>
+
+  <aside id="panel" hidden>
+    <div class="panelhead">
+      <h2>Tor circuit</h2>
+      <button id="closepanel" class="icon" title="Close">×</button>
+    </div>
+    <p id="panelsite" class="muted"></p>
+    <ol id="hops"></ol>
+    <p id="panelnote" class="muted small"></p>
+    <div class="panelactions">
+      <button id="newcircuit" class="tool">New circuit for this site</button>
+    </div>
+    <div class="explain small muted">
+      <p><b>Guard</b> knows your IP, not where you're going.</p>
+      <p><b>Middle</b> knows neither.</p>
+      <p><b>Exit</b> knows the site, not who you are.</p>
+      <p>Each site gets its own circuit, so sites can't link you by IP.</p>
+    </div>
+  </aside>
+  <script src="ui.js"></script>
+</body>
+</html>
