@@ -120,5 +120,9 @@ if (location.protocol === 'veil:') {
     stopHosting: id => call('stopHosting', id),
     hosted: () => call('hosted'),
     networkTest: () => call('networkTest'),
+    bookmarks: () => call('bookmarks'),
+    removeBookmark: url => call('removeBookmark', url),
+    history: () => call('history'),
+    clearHistory: () => call('clearHistory'),
   }
 }
