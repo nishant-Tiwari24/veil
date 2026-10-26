@@ -14,6 +14,10 @@ function findTor() {
   return TOR_CANDIDATES.find(p => fs.existsSync(p)) || 'tor'
 }
 
+// lyrebird runs obfs4 / Snowflake / meek bridges (copied from Tor Browser by
+// `npm run bridges:setup`; Homebrew doesn't package it).
+const LYREBIRD = process.env.VEIL_LYREBIRD || path.join(__dirname, '..', '..', 'bin', 'lyrebird')
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer()
@@ -36,14 +40,36 @@ class TorManager extends EventEmitter {
     this.control = null
   }
 
-  async start() {
+  // bridges: bridge lines ("obfs4 1.2.3.4:443 FINGERPRINT cert=..."), or [] to connect directly
+  async start({ bridges = [] } = {}) {
     const bin = findTor()
+    this.stopping = false
+    this.ready = false
+    this.error = null
+    this.progress = 0
+    this.control = null
+    this.bridges = bridges
+    this.summary = bridges.length ? 'Starting tor with bridges' : 'Starting tor'
     this.dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'veil-tor-'))
     this.socksPort = await freePort()
     this.controlPort = await freePort()
 
+    // Bridges go in the torrc: Bridge is a repeated option (Tor Browser's torrc-defaults
+    // registers the same transports).
+    let rc = ''
+    if (bridges.length) {
+      if (!fs.existsSync(LYREBIRD)) {
+        return this._fail('Bridges need lyrebird. Run: npm run bridges:setup')
+      }
+      rc = [
+        'UseBridges 1',
+        `ClientTransportPlugin meek_lite,obfs2,obfs3,obfs4,scramblesuit,webtunnel exec ${LYREBIRD}`,
+        `ClientTransportPlugin snowflake exec ${LYREBIRD}`,
+        ...bridges.map(line => `Bridge ${line}`),
+      ].join('\n') + '\n'
+    }
     const emptyRc = path.join(this.dataDir, 'torrc')
-    fs.writeFileSync(emptyRc, '')
+    fs.writeFileSync(emptyRc, rc)
 
     const args = [
       '-f', emptyRc,
@@ -70,15 +96,17 @@ class TorManager extends EventEmitter {
       args.push('--GeoIPFile', geoip, '--GeoIPv6File', path.join(shareDir, 'geoip6'))
     }
 
-    this.proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-    this.proc.on('error', err => this._fail(`Could not start tor (${err.message}). Install it with: brew install tor`))
-    this.proc.on('exit', code => {
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    this.proc = proc
+    proc.on('error', err => this._fail(`Could not start tor (${err.message}). Install it with: brew install tor`))
+    proc.on('exit', code => {
+      if (proc !== this.proc) return // an old tor from before a restart
       this.ready = false
       if (!this.stopping) this._fail(`tor exited (code ${code})`)
     })
 
     let buf = ''
-    this.proc.stdout.on('data', chunk => {
+    proc.stdout.on('data', chunk => {
       buf += chunk
       let i
       while ((i = buf.indexOf('\n')) >= 0) {
@@ -94,7 +122,7 @@ class TorManager extends EventEmitter {
     if (m) {
       this.progress = Number(m[1])
       this.summary = m[2].trim()
-      if (this.progress === 100) this._connectControl()
+      if (this.progress === 100 && !this.control) this._connectControl()
       this.emit('status')
     }
   }
@@ -106,7 +134,7 @@ class TorManager extends EventEmitter {
       await this.control.connect(this.controlPort, cookie)
       await this.control.command('TAKEOWNERSHIP')
       this.ready = true
-      this.summary = 'Connected to the Tor network'
+      this.summary = this.bridges.length ? 'Connected to the Tor network via a bridge' : 'Connected to the Tor network'
     } catch (err) {
       this._fail(`Control port: ${err.message}`)
     }
@@ -120,20 +148,30 @@ class TorManager extends EventEmitter {
   }
 
   status() {
-    return { progress: this.progress, summary: this.summary, ready: this.ready, error: this.error }
+    return { progress: this.progress, summary: this.summary, ready: this.ready, error: this.error, bridged: !!this.bridges?.length }
+  }
+
+  // Switching bridges: a fresh tor with a fresh data folder and new ports.
+  async restart(options) {
+    this.stop()
+    this.emit('status')
+    await this.start(options)
+    this.emit('status')
   }
 
   stop() {
     this.stopping = true
     this.ready = false
     try { this.control?.close() } catch {}
+    this.control = null
+    const dir = this.dataDir // captured: after a restart this.dataDir is the new tor's
     const wipe = () => {
-      try { fs.rmSync(this.dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) } catch {}
+      try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) } catch {}
     }
     // tor may still be writing on its way out: wipe now and again once it exits
     this.proc?.once('exit', wipe)
     try { this.proc?.kill('SIGTERM') } catch {}
-    if (this.dataDir) wipe()
+    if (dir) wipe()
   }
 }
 
