@@ -4,35 +4,39 @@
 <meta charset="utf-8">
 <title>Leak Test</title>
 <style>
-  :root { --bg:#0d0f14; --bg-2:#151821; --bg-3:#1d2130; --line:#262b3b; --text:#e8e6f0; --muted:#8f8aa3;
-          --accent:#9b7bff; --accent-2:#6d4dff; --good:#3fd28b; --warn:#f5b84a; --bad:#ff5f6d; }
+  :root { --text:#1b1b1b; --dim:#5f6368; --faint:#9a9da2; --line:#c9cacd; --edge:#8f9297; --red:#c4161c; --red-dark:#8f0f13;
+          --ui: "Segoe UI", Tahoma, Verdana, sans-serif; --mono: "Courier New", Courier, monospace; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-  main { max-width: 820px; margin: 0 auto; padding: 48px 24px 80px; }
-  h1 { font-size: 28px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 28px; }
-  h2 { font-size: 17px; margin: 32px 0 12px; }
-  button { padding: 10px 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent-2);
-           color: #fff; font: inherit; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: default; }
-  .checks { display: grid; gap: 8px; }
-  .check { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px;
-           border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
-  .check .icon { font-size: 18px; text-align: center; }
+  body { margin: 0; background: #fff; color: var(--text); font: 13px/1.45 var(--ui); }
+  main { max-width: 820px; margin: 0 auto; padding: 36px 24px 64px; }
+  h1 { font: bold 22px var(--ui); margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 18px; font-size: 12px; }
+  h2 { margin: 22px 0 0; padding: 5px 10px; font: bold 12px var(--ui); background: linear-gradient(#fff, #e4e5e7);
+       border: 1px solid var(--line); }
+  button { height: 27px; padding: 0 12px; border: 1px solid #a7a9ad; border-radius: 3px; color: #222; font: 12px var(--ui);
+           background: linear-gradient(#fff, #e3e3e3); }
+  button:hover { border-color: #7d8085; }
+  button:disabled { color: var(--faint); }
+  .checks { border: 1px solid var(--line); border-top: 0; }
+  .checks:empty { display: none; }
+  .check { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: center; padding: 6px 10px;
+           border-top: 1px solid #ececed; }
+  .check:nth-child(even) { background: #f8f8f9; }
+  .check .icon { font: bold 11px var(--mono); }
   .check .label b { display: block; }
-  .check .label span { color: var(--muted); font-size: 12px; }
-  .check .value { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); text-align: right; max-width: 320px; word-break: break-all; }
-  .pass .icon { color: var(--good); } .fail .icon { color: var(--bad); } .pending .icon { color: var(--warn); }
+  .check .label span { color: var(--dim); font-size: 11px; }
+  .check .value { font: 11px var(--mono); color: var(--dim); text-align: right; max-width: 320px; word-break: break-all; }
+  .pass .icon { color: #000; } .fail .icon { color: var(--red); } .fail .label b { color: var(--red); } .pending .icon { color: var(--faint); }
 </style>
 </head>
 <body>
 <main>
-  <h1>🧪 Leak test</h1>
+  <h1>Leak test</h1>
   <p class="sub">Checks what the network and websites can learn about you. Fingerprint values below are exactly what every website sees.</p>
 
-  <h2>Network</h2>
   <button id="run">Run network test</button>
-  <div class="checks" id="net" style="margin-top:12px"></div>
+  <h2>Network</h2>
+  <div class="checks" id="net"></div>
 
   <h2>Fingerprint (what websites see)</h2>
   <div class="checks" id="fp"></div>
@@ -43,7 +47,7 @@ function row(container, state, title, detail, value) {
   const r = document.createElement('div')
   r.className = 'check ' + state
   const icon = document.createElement('div'); icon.className = 'icon'
-  icon.textContent = state === 'pass' ? '✓' : state === 'fail' ? '✗' : '…'
+  icon.textContent = state === 'pass' ? '[PASS]' : state === 'fail' ? '[FAIL]' : '[....]'
   const label = document.createElement('div'); label.className = 'label'
   const b = document.createElement('b'); b.textContent = title
   const s = document.createElement('span'); s.textContent = detail
@@ -57,7 +61,7 @@ $('run').onclick = async () => {
   const net = $('net')
   net.replaceChildren()
   $('run').disabled = true
-  row(net, 'pending', 'Testing through Tor…', 'Asking check.torproject.org from two isolated sites', '')
+  row(net, 'pending', 'Testing through Tor...', 'Asking check.torproject.org from two isolated sites', '')
   try {
     const r = await veil.networkTest()
     net.replaceChildren()
@@ -78,7 +82,7 @@ function canvasHash() {
   const c = document.createElement('canvas'); c.width = 220; c.height = 40
   const x = c.getContext('2d')
   x.fillStyle = '#f60'; x.fillRect(10, 5, 100, 30)
-  x.fillStyle = '#069'; x.font = '16px Arial'; x.fillText('Veil fingerprint 🧅', 4, 24)
+  x.fillStyle = '#069'; x.font = '16px Arial'; x.fillText('Veil fingerprint', 4, 24)
   let h = 0
   for (const ch of c.toDataURL()) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0
   return (h >>> 0).toString(16)
