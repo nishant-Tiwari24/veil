@@ -1,0 +1,23 @@
+{
+  "name": "veil",
+  "version": "0.1.0",
+  "description": "Anonymous browser built on Tor onion routing",
+  "main": "src/main/main.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "electron .",
+    "community:keygen": "node scripts/community-keygen.js",
+    "community:sign": "node scripts/community-sign.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^45.0.0"
+  },
+  "dependencies": {
+    "tldts": "^7.4.19"
+  }
+}
