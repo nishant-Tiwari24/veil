@@ -11,13 +11,16 @@ const { getDomain } = require('tldts')
 const { TorManager } = require('./tor')
 const { IsolationRelay } = require('./relay')
 const { Community, COMMUNITY_DIR } = require('./community')
+const { Bookmarks } = require('./bookmarks')
+const { attachContextMenu } = require('./contextmenu')
 
 const SRC = path.join(__dirname, '..')
 const UI_PRELOAD = path.join(SRC, 'preload', 'ui.js')
 const PAGE_PRELOAD = path.join(SRC, 'preload', 'page.js')
 const PAGES_DIR = path.join(SRC, 'renderer', 'pages')
 
-const TOOLBAR_HEIGHT = 88
+const TOOLBAR_HEIGHT = 76
+const FIND_HEIGHT = 34
 const PANEL_WIDTH = 340
 const HOME = 'veil://hub/'
 const SEARCH = 'https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/?q='
@@ -51,8 +54,14 @@ let win
 let uiView
 let level = 'standard' // standard | safer | safest
 let panelOpen = false
+let findOpen = false
+let fullscreen = false
 let identity = newIdentityState()
-const tabs = new Map()
+let tabs = new Map() // insertion order = tab order
+let history = [] // this session only, never written to disk
+let closedTabs = []
+let bookmarks
+let toast = null
 let activeId = null
 let nextTabId = 1
 const sessions = new Map() // site -> Promise<Session>
@@ -79,7 +88,34 @@ function hardenSession(ses) {
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(false)) // camera, mic, location, notifications...
   ses.setPermissionCheckHandler(() => false)
   ses.setSpellCheckerEnabled(false)
-  ses.on('will-download', e => e.preventDefault())
+  ses.on('will-download', (e, item) => {
+    const name = item.getFilename()
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning', buttons: ['Download', 'Cancel'], defaultId: 1, cancelId: 1,
+      message: `Download "${name}"?`,
+      detail: 'The download itself goes through Tor. But some files (PDFs, Office documents, media) can '
+        + 'connect to the internet directly when opened outside Veil and reveal your real IP. '
+        + 'Open them offline.',
+    })
+    if (choice !== 0) return e.preventDefault()
+    item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('downloads'), name) })
+    showToast(`Downloading ${name}…`)
+    item.once('done', (ev, st) => showToast(st === 'completed' ? `Downloaded ${name}` : `Download ${st}: ${name}`))
+  })
+
+  // Onion-Location: a site advertising its .onion version (like Tor Browser's ".onion available")
+  ses.webRequest.onHeadersReceived((d, cb) => {
+    if (d.resourceType === 'mainFrame' && d.responseHeaders) {
+      const key = Object.keys(d.responseHeaders).find(k => k.toLowerCase() === 'onion-location')
+      const loc = key && d.responseHeaders[key][0]
+      const tab = loc && [...tabs.values()].find(t => t.view?.webContents.id === d.webContentsId)
+      if (tab && /^https?:\/\/([a-z0-9-]+\.)*[a-z2-7]{56}\.onion(\/|$)/.test(loc)) {
+        tab.onionLocation = loc
+        sendState()
+      }
+    }
+    cb({})
+  })
 
   // Kill switch (ADR 0004): only web schemes, and only once tor is ready.
   ses.webRequest.onBeforeRequest((details, cb) => {
@@ -146,7 +182,10 @@ function siteSeed(site) {
 }
 
 function createTab(url = HOME, { activate = true } = {}) {
-  const tab = { id: nextTabId++, url: '', title: 'New Tab', site: null, view: null, loading: false, error: null }
+  const tab = {
+    id: nextTabId++, url: '', title: 'New Tab', site: null, view: null, loading: false, error: null,
+    favicon: null, zoom: 0, onionLocation: null, find: null,
+  }
   tabs.set(tab.id, tab)
   if (activate || activeId == null) activeId = tab.id
   loadInTab(tab, url)
@@ -190,16 +229,20 @@ function replaceView(tab, site, ses) {
       safeDialogs: true,
     },
   })
-  view.setBackgroundColor('#0d0f14')
+  view.setBackgroundColor('#ffffff')
   tab.view = view
   tab.site = site
   tab.level = level
 
   const wc = view.webContents
   wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
-  wc.setWindowOpenHandler(({ url }) => {
-    if (siteFor(url) && siteFor(url) !== 'veil') createTab(url)
+  wc.setWindowOpenHandler(({ url, disposition }) => {
+    if (siteFor(url) && siteFor(url) !== 'veil') createTab(url, { activate: disposition !== 'background-tab' })
     return { action: 'deny' }
+  })
+  attachContextMenu(wc, {
+    openInNewTab: url => createTab(url, { activate: false }),
+    search: text => createTab(SEARCH + encodeURIComponent(text)),
   })
   const crossSite = (e, url) => {
     if (url.startsWith('veil:') && tab.site !== 'veil') return e.preventDefault() // web can't open internal pages
@@ -216,8 +259,33 @@ function replaceView(tab, site, ses) {
   const update = () => {
     tab.url = wc.getURL() || tab.url
     tab.title = wc.getTitle() || tab.url
+    const entry = history.find(h => h.url === tab.url)
+    if (entry) entry.title = tab.title
     sendState()
   }
+  wc.on('did-start-navigation', (e, url, inPlace, isMain) => {
+    if ((e.isMainFrame ?? isMain) && !(e.isSameDocument ?? inPlace)) { tab.onionLocation = null; tab.favicon = null }
+  })
+  wc.on('did-navigate', (e, url) => {
+    if (!/^https?:/.test(url)) return
+    history = [{ url, title: wc.getTitle() || url, time: Date.now() }, ...history.filter(h => h.url !== url)].slice(0, 300)
+  })
+  wc.on('page-favicon-updated', async (e, favicons) => {
+    const src = favicons.find(f => /^https?:/.test(f))
+    if (!src) return
+    try {
+      const res = await wc.session.fetch(src) // through this site's Tor circuit
+      const type = res.headers.get('content-type') || ''
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (!res.ok || !type.startsWith('image/') || buf.length > 200000) return
+      tab.favicon = `data:${type};base64,${buf.toString('base64')}`
+      sendState()
+    } catch {}
+  })
+  wc.on('found-in-page', (e, r) => { tab.find = { active: r.activeMatchOrdinal, matches: r.matches }; sendState() })
+  wc.on('zoom-changed', (e, dir) => zoomTab(tab, dir === 'in' ? 1 : -1))
+  wc.on('enter-html-full-screen', () => { fullscreen = true; win.setFullScreen(true); layout(); sendState() })
+  wc.on('leave-html-full-screen', () => { fullscreen = false; win.setFullScreen(false); layout(); sendState() })
   wc.on('did-start-loading', () => { tab.loading = true; tab.error = null; layout(); sendState() })
   wc.on('did-stop-loading', () => { tab.loading = false; update() })
   wc.on('page-title-updated', update)
@@ -237,12 +305,15 @@ function replaceView(tab, site, ses) {
 function closeTab(id) {
   const tab = tabs.get(id)
   if (!tab) return
+  const ids = [...tabs.keys()]
+  const idx = ids.indexOf(id)
   tabs.delete(id)
+  if (tab.url && !tab.url.startsWith(HOME)) closedTabs = [tab.url, ...closedTabs].slice(0, 20)
   if (tab.view) {
     win.contentView.removeChildView(tab.view)
     tab.view.webContents.close()
   }
-  if (activeId === id) activeId = [...tabs.keys()].pop() ?? null
+  if (activeId === id) activeId = ids[idx + 1] ?? ids[idx - 1] ?? null
   if (activeId == null) createTab()
   layout()
   sendState()
@@ -252,20 +323,75 @@ function activeTab() {
   return tabs.get(activeId)
 }
 
+function selectTab(index) {
+  const ids = [...tabs.keys()]
+  if (!ids.length) return
+  const id = index === 'last' ? ids.at(-1) : ids[index]
+  if (id != null) uiCommands.activate(id)
+}
+
+function cycleTab(step) {
+  const ids = [...tabs.keys()]
+  const i = ids.indexOf(activeId)
+  selectTab((i + step + ids.length) % ids.length)
+}
+
+function moveTab(id, toIndex) {
+  const entries = [...tabs.entries()]
+  const from = entries.findIndex(([k]) => k === id)
+  if (from < 0) return
+  const [moved] = entries.splice(from, 1)
+  entries.splice(Math.max(0, Math.min(toIndex, entries.length)), 0, moved)
+  tabs = new Map(entries)
+  sendState()
+}
+
+function reopenClosedTab() {
+  const [url, ...rest] = closedTabs
+  if (!url) return
+  closedTabs = rest
+  createTab(url)
+}
+
+// Chrome's zoom steps: 1.2^level
+function zoomTab(tab, dir) {
+  const wc = tab?.view?.webContents
+  if (!wc) return
+  tab.zoom = dir === 0 ? 0 : Math.max(-3, Math.min(5, tab.zoom + dir * 0.5))
+  wc.setZoomLevel(tab.zoom)
+  sendState()
+}
+
+function showToast(text) {
+  toast = { text, id: Date.now() }
+  sendState()
+  const id = toast.id
+  setTimeout(() => { if (toast?.id === id) { toast = null; sendState() } }, 5000)
+}
+
+function suggestions() {
+  const seen = new Set()
+  return [...bookmarks.list(), ...history]
+    .filter(h => !seen.has(h.url) && seen.add(h.url))
+    .slice(0, 60)
+    .map(h => ({ url: h.url, title: h.title }))
+}
+
 // ADR 0006 letterboxing: page viewport is rounded down to multiples of
 // 200x100 and centered, so window size can't fingerprint you.
 function layout() {
   if (!win) return
   const [w, h] = win.getContentSize()
   uiView.setBounds({ x: 0, y: 0, width: w, height: h })
-  const area = { x: 0, y: TOOLBAR_HEIGHT, width: w - (panelOpen ? PANEL_WIDTH : 0), height: h - TOOLBAR_HEIGHT }
+  const top = fullscreen ? 0 : TOOLBAR_HEIGHT + (findOpen ? FIND_HEIGHT : 0)
+  const area = { x: 0, y: top, width: w - (panelOpen && !fullscreen ? PANEL_WIDTH : 0), height: h - top }
   for (const tab of tabs.values()) {
     if (!tab.view) continue
     const visible = tab.id === activeId && !tab.error // errors show the UI's error card
     tab.view.setVisible(visible)
     if (!visible) continue
     let { x, y, width, height } = area
-    if (tab.site !== 'veil') {
+    if (tab.site !== 'veil' && !fullscreen) {
       const lw = width >= 200 ? Math.floor(width / 200) * 200 : width
       const lh = height >= 100 ? Math.floor(height / 100) * 100 : height
       x += Math.floor((width - lw) / 2)
@@ -284,6 +410,8 @@ function sendState() {
   uiView.webContents.send('veil:state', {
     tabs: [...tabs.values()].map(t => ({
       id: t.id, title: t.title, url: t.url, site: t.site, loading: t.loading, error: t.error,
+      favicon: t.favicon, zoom: Math.round(Math.pow(1.2, t.zoom) * 100), onionLocation: t.onionLocation,
+      find: t.find, bookmarked: !!bookmarks?.has(t.url),
       canBack: !!t.view?.webContents.navigationHistory.canGoBack(),
       canForward: !!t.view?.webContents.navigationHistory.canGoForward(),
     })),
@@ -291,6 +419,11 @@ function sendState() {
     tor: tor.status(),
     level,
     panelOpen,
+    findOpen,
+    fullscreen,
+    toast: toast?.text || null,
+    suggestions: bookmarks ? suggestions() : [],
+    canReopen: closedTabs.length > 0,
   })
 }
 
@@ -315,6 +448,8 @@ async function newIdentity({ panic = false } = {}) {
   }
   tabs.clear()
   activeId = null
+  history = []
+  closedTabs = []
   const old = [...sessions.values()]
   sessions.clear()
   identity = newIdentityState()
@@ -330,6 +465,7 @@ async function newIdentity({ panic = false } = {}) {
   if (tor.control) await tor.control.signal('NEWNYM').catch(() => {})
   if (panic) {
     clipboard.clear()
+    bookmarks.wipe()
     await community.wipe()
   }
   createTab(HOME)
@@ -392,7 +528,7 @@ ipcMain.on('veil:page-config', e => {
 })
 
 const uiCommands = {
-  newTab: url => createTab(normalizeInput(url) || HOME),
+  newTab: url => { createTab(normalizeInput(url) || HOME) },
   closeTab: id => closeTab(id),
   activate: id => { if (tabs.has(id)) { activeId = id; layout(); sendState() } },
   navigate: input => {
@@ -415,6 +551,47 @@ const uiCommands = {
   panic: () => newIdentity({ panic: true }),
   newCircuit: () => newCircuitForSite(),
   circuit: () => circuitInfo(),
+  moveTab: (id, toIndex) => moveTab(id, toIndex),
+  reopenClosed: () => reopenClosedTab(),
+  tabMenu: id => {
+    const t = tabs.get(id)
+    if (!t) return
+    Menu.buildFromTemplate([
+      { label: 'New Tab', click: () => createTab() },
+      { type: 'separator' },
+      { label: 'Reload', click: () => t.view?.webContents.reload() },
+      { label: 'Duplicate', click: () => createTab(t.url) },
+      { type: 'separator' },
+      { label: 'Close Tab', click: () => closeTab(id) },
+      { label: 'Close Other Tabs', enabled: tabs.size > 1, click: () => { for (const o of [...tabs.keys()]) if (o !== id) closeTab(o) } },
+      { type: 'separator' },
+      { label: 'Reopen Closed Tab', enabled: closedTabs.length > 0, click: reopenClosedTab },
+    ]).popup()
+  },
+  bookmark: () => {
+    const t = activeTab()
+    if (!t || t.site === 'veil') return
+    const on = bookmarks.toggle(t.url, t.title)
+    showToast(on ? 'Bookmarked (saved on this computer)' : 'Bookmark removed')
+  },
+  openOnion: () => { const t = activeTab(); if (t?.onionLocation) loadInTab(t, t.onionLocation) },
+  zoom: dir => zoomTab(activeTab(), dir),
+  findOpen: open => {
+    findOpen = !!open
+    if (!findOpen) {
+      const t = activeTab()
+      t?.view?.webContents.stopFindInPage('clearSelection')
+      if (t) t.find = null
+    }
+    layout()
+    sendState()
+  },
+  find: (text, forward = true, next = false) => {
+    const wc = activeTab()?.view?.webContents
+    if (!wc) return
+    if (!text) { wc.stopFindInPage('clearSelection'); activeTab().find = null; return sendState() }
+    wc.findInPage(text, { forward, findNext: !next })
+  },
 }
 
 ipcMain.handle('veil:ui', async (e, cmd, ...args) => {
@@ -423,7 +600,7 @@ ipcMain.handle('veil:ui', async (e, cmd, ...args) => {
 })
 
 // Commands that work before tor is connected; the rest need the network.
-const OFFLINE_OK = new Set(['status', 'open', 'directory', 'hosted'])
+const OFFLINE_OK = new Set(['status', 'open', 'directory', 'hosted', 'bookmarks', 'removeBookmark', 'history', 'clearHistory'])
 
 const internalCommands = {
   status: () => ({ tor: tor.status(), level }),
@@ -443,6 +620,10 @@ const internalCommands = {
   stopHosting: (sender, id) => community.stopHosting(id),
   hosted: () => community.listHosted(),
   networkTest: () => networkTest(),
+  bookmarks: () => bookmarks.list(),
+  removeBookmark: (sender, url) => { bookmarks.remove(url); sendState() },
+  history: () => history,
+  clearHistory: () => { history = []; closedTabs = []; sendState() },
 }
 
 ipcMain.handle('veil:internal', async (e, cmd, ...args) => {
@@ -454,24 +635,71 @@ ipcMain.handle('veil:internal', async (e, cmd, ...args) => {
 // ---------- window & menu ----------
 
 function buildMenu() {
-  const veilItems = [
-    { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => createTab() },
-    { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => closeTab(activeId) },
-    { label: 'Focus Address Bar', accelerator: 'CmdOrCtrl+L', click: () => uiView.webContents.send('veil:focus-address') },
-    { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => uiCommands.reload() },
-    { type: 'separator' },
-    { label: 'New Identity', accelerator: 'CmdOrCtrl+Shift+U', click: () => newIdentity() },
-    { label: 'New Circuit for This Site', accelerator: 'CmdOrCtrl+Shift+L', click: () => newCircuitForSite() },
-    { label: 'PANIC — Wipe Everything', accelerator: 'CmdOrCtrl+Shift+X', click: () => newIdentity({ panic: true }) },
-    { type: 'separator' },
-    { label: 'Leak Test', click: () => createTab('veil://leaktest/') },
-    { label: 'Community Hub', click: () => createTab(HOME) },
-    { label: 'Toggle Page DevTools', accelerator: 'Alt+CmdOrCtrl+I', click: () => activeTab()?.view?.webContents.toggleDevTools() },
-  ]
+  const wc = () => activeTab()?.view?.webContents
+  const ui = (channel, ...args) => uiView.webContents.send(channel, ...args)
+  const tabItems = [...Array(8)].map((_, i) => ({
+    label: `Select Tab ${i + 1}`, accelerator: `CmdOrCtrl+${i + 1}`, click: () => selectTab(i),
+  }))
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { role: 'appMenu' },
-    { label: 'Veil', submenu: veilItems },
-    { role: 'editMenu' },
+    { label: 'File', submenu: [
+      { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => createTab() },
+      { label: 'Reopen Closed Tab', accelerator: 'CmdOrCtrl+Shift+T', click: reopenClosedTab },
+      { label: 'Open Location…', accelerator: 'CmdOrCtrl+L', click: () => ui('veil:focus-address') },
+      { type: 'separator' },
+      { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => closeTab(activeId) },
+      { type: 'separator' },
+      { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: () => wc()?.print() },
+    ] },
+    { label: 'Edit', submenu: [
+      { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+      { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      { type: 'separator' },
+      { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => { uiCommands.findOpen(true); ui('veil:focus-find') } },
+      { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => ui('veil:find-step', true) },
+      { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', click: () => ui('veil:find-step', false) },
+    ] },
+    { label: 'View', submenu: [
+      { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => wc()?.reload() },
+      { label: 'Force Reload', accelerator: 'CmdOrCtrl+Shift+R', click: () => wc()?.reloadIgnoringCache() },
+      { type: 'separator' },
+      { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => uiCommands.zoom(1) },
+      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => uiCommands.zoom(-1) },
+      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => uiCommands.zoom(0) },
+      { type: 'separator' },
+      { label: 'Toggle Full Screen', accelerator: 'Ctrl+CmdOrCtrl+F', click: () => win.setFullScreen(!win.isFullScreen()) },
+      { label: 'Developer Tools', accelerator: 'Alt+CmdOrCtrl+I', click: () => wc()?.toggleDevTools() },
+    ] },
+    { label: 'History', submenu: [
+      { label: 'Back', accelerator: 'CmdOrCtrl+[', click: () => wc()?.navigationHistory.goBack() },
+      { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: () => wc()?.navigationHistory.goForward() },
+      { label: 'Home', accelerator: 'CmdOrCtrl+Shift+H', click: () => { const t = activeTab(); if (t) loadInTab(t, HOME) } },
+      { type: 'separator' },
+      { label: 'Show History', accelerator: 'CmdOrCtrl+Y', click: () => createTab('veil://history/') },
+    ] },
+    { label: 'Bookmarks', submenu: [
+      { label: 'Bookmark This Page', accelerator: 'CmdOrCtrl+D', click: () => uiCommands.bookmark() },
+      { label: 'Show Bookmarks', accelerator: 'Alt+CmdOrCtrl+B', click: () => createTab(HOME) },
+    ] },
+    { label: 'Tab', submenu: [
+      { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => cycleTab(1) },
+      { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => cycleTab(-1) },
+      { type: 'separator' },
+      ...tabItems,
+      { label: 'Select Last Tab', accelerator: 'CmdOrCtrl+9', click: () => selectTab('last') },
+    ] },
+    { label: 'Privacy', submenu: [
+      { label: 'New Identity', accelerator: 'CmdOrCtrl+Shift+U', click: () => newIdentity() },
+      { label: 'New Circuit for This Site', accelerator: 'CmdOrCtrl+Shift+L', click: () => newCircuitForSite() },
+      { label: 'PANIC — Wipe Everything', accelerator: 'CmdOrCtrl+Shift+X', click: () => newIdentity({ panic: true }) },
+      { type: 'separator' },
+      { label: 'Security Level', submenu: ['standard', 'safer', 'safest'].map(l => ({
+        label: l[0].toUpperCase() + l.slice(1), click: () => uiCommands.setLevel(l),
+      })) },
+      { label: 'Tor Circuit', click: () => uiCommands.panel(!panelOpen) },
+      { label: 'Leak Test', click: () => createTab('veil://leaktest/') },
+      { label: 'Community Hub', click: () => createTab(HOME) },
+    ] },
     { role: 'windowMenu' },
   ]))
 }
@@ -479,19 +707,20 @@ function buildMenu() {
 function createWindow() {
   win = new BaseWindow({
     width: 1280, height: 860, minWidth: 720, minHeight: 480,
-    title: 'Veil', backgroundColor: '#0d0f14',
+    title: 'Veil', backgroundColor: '#ffffff',
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 },
   })
   uiView = new WebContentsView({
     webPreferences: { preload: UI_PRELOAD, sandbox: true, contextIsolation: true, nodeIntegration: false },
   })
-  uiView.setBackgroundColor('#0d0f14')
+  uiView.setBackgroundColor('#ffffff')
   uiView.webContents.loadFile(path.join(SRC, 'renderer', 'ui.html'))
   uiView.webContents.on('will-navigate', e => e.preventDefault())
   uiView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   uiView.webContents.on('did-finish-load', sendState)
   win.contentView.addChildView(uiView)
   win.on('resize', layout)
+  win.on('leave-full-screen', () => { if (fullscreen) { fullscreen = false; activeTab()?.view?.webContents.executeJavaScript('document.fullscreenElement && document.exitFullscreen()').catch(() => {}); layout(); sendState() } })
   win.on('closed', () => { win = null; app.quit() })
   layout()
 }
@@ -500,6 +729,7 @@ app.whenReady().then(async () => {
   // The UI loads from disk; refuse any network from the default session too.
   session.defaultSession.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !/^(file|devtools|data):/.test(d.url) }))
 
+  bookmarks = new Bookmarks(app.getPath('userData'))
   buildMenu()
   createWindow()
 
@@ -535,7 +765,10 @@ app.whenReady().then(async () => {
       screen: screen.width + 'x' + screen.height,
       inner: innerWidth + 'x' + innerHeight,
     })`)
-    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite })
+    const browser = {
+      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size,
+    }
+    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite, browser })
       .then(failed => failed ? 1 : 0)
       .catch(err => { console.error('SELFTEST ERROR', err); return 2 })
       .then(code => { community.stop(); tor.stop(); app.exit(code) }) // app.exit skips before-quit
