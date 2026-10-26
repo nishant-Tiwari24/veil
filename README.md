@@ -52,6 +52,8 @@ VEIL_SELFTEST=1 npm start
 - Fingerprint resistance: uniform UA, UTC timezone, letterboxing, canvas noise, WebGL masking
 - Security levels: Standard / Safer / Safest (JavaScript off)
 - Live circuit map, New Identity (⌘⇧U), New Circuit (⌘⇧L), **Panic** (⌘⇧X)
+- **See onion routing** (⌘⇧O): an animated view of your real circuit, with a packet
+  losing one encryption layer per relay, who-sees-what, and live traffic from tor
 - Built-in leak test
 - Community Hub: signed directory, invite-only sites, one-click onion hosting
 
