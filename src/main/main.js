@@ -480,6 +480,18 @@ async function newCircuitForSite() {
   tab.view.webContents.reload()
 }
 
+// Data for veil://routing: the real circuit for a site plus live tor stats.
+async function routingInfo(site) {
+  const sites = [...new Set([...tabs.values()].map(t => t.site).filter(x => x && x !== 'veil'))]
+  site = site || sites[0] || null
+  if (!site || !tor.control) return { site, sites, circuit: null }
+  const { username, password } = relay.credentialsFor(site)
+  const circuit = await tor.control.circuitFor(username, password).catch(() => null)
+  const streams = circuit ? await tor.control.streamsOn(circuit.id).catch(() => []) : []
+  const traffic = await tor.control.traffic().catch(() => null)
+  return { site, sites, circuit, streams, traffic }
+}
+
 async function circuitInfo() {
   const tab = activeTab()
   if (!tab || tab.site === 'veil' || !tor.control) return { site: tab?.site || null, circuit: null }
@@ -551,6 +563,10 @@ const uiCommands = {
   panic: () => newIdentity({ panic: true }),
   newCircuit: () => newCircuitForSite(),
   circuit: () => circuitInfo(),
+  watchRouting: () => {
+    const site = activeTab()?.site
+    createTab(`veil://routing/${site && site !== 'veil' ? `?site=${encodeURIComponent(site)}` : ''}`)
+  },
   moveTab: (id, toIndex) => moveTab(id, toIndex),
   reopenClosed: () => reopenClosedTab(),
   tabMenu: id => {
@@ -620,6 +636,7 @@ const internalCommands = {
   stopHosting: (sender, id) => community.stopHosting(id),
   hosted: () => community.listHosted(),
   networkTest: () => networkTest(),
+  routing: (sender, site) => routingInfo(site),
   bookmarks: () => bookmarks.list(),
   removeBookmark: (sender, url) => { bookmarks.remove(url); sendState() },
   history: () => history,
@@ -697,6 +714,7 @@ function buildMenu() {
         label: l[0].toUpperCase() + l.slice(1), click: () => uiCommands.setLevel(l),
       })) },
       { label: 'Tor Circuit', click: () => uiCommands.panel(!panelOpen) },
+      { label: 'See Onion Routing', accelerator: 'CmdOrCtrl+Shift+O', click: () => uiCommands.watchRouting() },
       { label: 'Leak Test', click: () => createTab('veil://leaktest/') },
       { label: 'Community Hub', click: () => createTab(HOME) },
     ] },
