@@ -13,6 +13,7 @@ const { IsolationRelay } = require('./relay')
 const { Community, COMMUNITY_DIR } = require('./community')
 const { Bookmarks } = require('./bookmarks')
 const { attachContextMenu } = require('./contextmenu')
+const { AdBlocker } = require('./adblock')
 
 const SRC = path.join(__dirname, '..')
 const UI_PRELOAD = path.join(SRC, 'preload', 'ui.js')
@@ -62,6 +63,7 @@ let history = [] // this session only, never written to disk
 let closedTabs = []
 let bookmarks
 let toast = null
+const adblock = new AdBlocker()
 let activeId = null
 let nextTabId = 1
 const sessions = new Map() // site -> Promise<Session>
@@ -83,7 +85,12 @@ function siteFor(url) {
   return getDomain(host) || host
 }
 
-function hardenSession(ses) {
+function tabByWebContentsId(id) {
+  for (const t of tabs.values()) if (t.view?.webContents.id === id) return t
+  return null
+}
+
+function hardenSession(ses, site) {
   ses.setUserAgent(USER_AGENT, 'en-US,en')
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(false)) // camera, mic, location, notifications...
   ses.setPermissionCheckHandler(() => false)
@@ -120,7 +127,15 @@ function hardenSession(ses) {
   // Kill switch (ADR 0004): only web schemes, and only once tor is ready.
   ses.webRequest.onBeforeRequest((details, cb) => {
     const ok = tor.ready && /^(https?|wss?|data|blob):/.test(details.url)
-    cb({ cancel: !ok })
+    if (!ok) return cb({ cancel: true })
+    // Ads & trackers (ADR 0009)
+    const verdict = /^(https?|wss?):/.test(details.url) && adblock.check(details, site)
+    if (verdict) {
+      const tab = tabByWebContentsId(details.webContentsId)
+      if (tab) { tab.blocked++; scheduleState() }
+      return cb(verdict)
+    }
+    cb({ cancel: false })
   })
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
     const h = details.requestHeaders
@@ -146,7 +161,7 @@ function sessionFor(site) {
         proxyRules: `socks5://127.0.0.1:${port}`,
         proxyBypassRules: '<-loopback>', // even localhost goes through Tor (which refuses it)
       })
-      hardenSession(ses)
+      hardenSession(ses, site)
       return ses
     })())
   }
@@ -184,7 +199,7 @@ function siteSeed(site) {
 function createTab(url = HOME, { activate = true } = {}) {
   const tab = {
     id: nextTabId++, url: '', title: 'New Tab', site: null, view: null, loading: false, error: null,
-    favicon: null, zoom: 0, onionLocation: null, find: null,
+    favicon: null, zoom: 0, onionLocation: null, find: null, blocked: 0,
   }
   tabs.set(tab.id, tab)
   if (activate || activeId == null) activeId = tab.id
@@ -264,7 +279,7 @@ function replaceView(tab, site, ses) {
     sendState()
   }
   wc.on('did-start-navigation', (e, url, inPlace, isMain) => {
-    if ((e.isMainFrame ?? isMain) && !(e.isSameDocument ?? inPlace)) { tab.onionLocation = null; tab.favicon = null }
+    if ((e.isMainFrame ?? isMain) && !(e.isSameDocument ?? inPlace)) { tab.onionLocation = null; tab.favicon = null; tab.blocked = 0 }
   })
   wc.on('did-navigate', (e, url) => {
     if (!/^https?:/.test(url)) return
@@ -281,6 +296,10 @@ function replaceView(tab, site, ses) {
       tab.favicon = `data:${type};base64,${buf.toString('base64')}`
       sendState()
     } catch {}
+  })
+  wc.on('dom-ready', () => {
+    const css = tab.site !== 'veil' && adblock.cosmeticCSS(wc.getURL(), tab.site)
+    if (css) wc.insertCSS(css, { cssOrigin: 'user' }).catch(() => {})
   })
   wc.on('found-in-page', (e, r) => { tab.find = { active: r.activeMatchOrdinal, matches: r.matches }; sendState() })
   wc.on('zoom-changed', (e, dir) => zoomTab(tab, dir === 'in' ? 1 : -1))
@@ -405,6 +424,12 @@ function layout() {
 
 // ---------- UI state ----------
 
+// Blocked-request counts change many times per page load; batch the UI updates.
+let stateTimer = null
+function scheduleState() {
+  if (!stateTimer) stateTimer = setTimeout(() => { stateTimer = null; sendState() }, 250)
+}
+
 function sendState() {
   if (!uiView || uiView.webContents.isDestroyed()) return
   uiView.webContents.send('veil:state', {
@@ -412,6 +437,7 @@ function sendState() {
       id: t.id, title: t.title, url: t.url, site: t.site, loading: t.loading, error: t.error,
       favicon: t.favicon, zoom: Math.round(Math.pow(1.2, t.zoom) * 100), onionLocation: t.onionLocation,
       find: t.find, bookmarked: !!bookmarks?.has(t.url),
+      blocked: t.blocked, adblockOn: t.site !== 'veil' && adblock.active(t.site),
       canBack: !!t.view?.webContents.navigationHistory.canGoBack(),
       canForward: !!t.view?.webContents.navigationHistory.canGoForward(),
     })),
@@ -424,6 +450,7 @@ function sendState() {
     toast: toast?.text || null,
     suggestions: bookmarks ? suggestions() : [],
     canReopen: closedTabs.length > 0,
+    adblockEnabled: adblock.enabled,
   })
 }
 
@@ -590,6 +617,19 @@ const uiCommands = {
     const on = bookmarks.toggle(t.url, t.title)
     showToast(on ? 'Bookmarked (saved on this computer)' : 'Bookmark removed')
   },
+  toggleAdblockSite: () => {
+    const t = activeTab()
+    if (!t || t.site === 'veil') return
+    const on = adblock.toggleSite(t.site)
+    showToast(on ? `Blocking ads on ${t.site}` : `Ads allowed on ${t.site} (this session only)`)
+    t.view.webContents.reload()
+  },
+  toggleAdblock: () => {
+    adblock.enabled = !adblock.enabled
+    showToast(adblock.enabled ? 'Ad & tracker blocking on' : 'Ad & tracker blocking off')
+    buildMenu()
+    activeTab()?.view?.webContents.reload()
+  },
   openOnion: () => { const t = activeTab(); if (t?.onionLocation) loadInTab(t, t.onionLocation) },
   zoom: dir => zoomTab(activeTab(), dir),
   findOpen: open => {
@@ -645,7 +685,7 @@ const internalCommands = {
 
 ipcMain.handle('veil:internal', async (e, cmd, ...args) => {
   if (!fromInternalPage(e) || !internalCommands[cmd]) throw new Error('not allowed')
-  if (!OFFLINE_OK.has(cmd) && !tor.ready) throw new Error('Not connected to Tor yet')
+  if (!OFFLINE_OK.has(cmd) && !tor.ready) throw new Error(`Not connected to Tor yet (${cmd})`)
   return internalCommands[cmd](e.sender, ...args)
 })
 
@@ -713,6 +753,7 @@ function buildMenu() {
       { label: 'Security Level', submenu: ['standard', 'safer', 'safest'].map(l => ({
         label: l[0].toUpperCase() + l.slice(1), click: () => uiCommands.setLevel(l),
       })) },
+      { label: 'Block Ads & Trackers', type: 'checkbox', checked: adblock.enabled, click: () => uiCommands.toggleAdblock() },
       { label: 'Tor Circuit', click: () => uiCommands.panel(!panelOpen) },
       { label: 'See Onion Routing', accelerator: 'CmdOrCtrl+Shift+O', click: () => uiCommands.watchRouting() },
       { label: 'Leak Test', click: () => createTab('veil://leaktest/') },
@@ -784,7 +825,7 @@ app.whenReady().then(async () => {
       inner: innerWidth + 'x' + innerHeight,
     })`)
     const browser = {
-      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView,
+      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView, adblock,
     }
     runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite, browser })
       .then(failed => failed ? 1 : 0)
