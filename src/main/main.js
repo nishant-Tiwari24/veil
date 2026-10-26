@@ -766,7 +766,7 @@ app.whenReady().then(async () => {
       inner: innerWidth + 'x' + innerHeight,
     })`)
     const browser = {
-      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size,
+      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView,
     }
     runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite, browser })
       .then(failed => failed ? 1 : 0)
