@@ -143,6 +143,7 @@ body.fullscreen #stage { inset: 0; }
 #hops li.you .role, #hops li.dest .role { color: var(--dim); }
 #hops .name { margin-top: 1px; color: #000; overflow-wrap: anywhere; }
 #hops .meta { font: 11px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+#panel .panelactions { display: flex; gap: 6px; }
 #panelnote { margin: 0 0 10px; font: 11px var(--mono); color: var(--faint); }
 .explain { margin-top: 16px; padding-top: 10px; border-top: 1px solid #dcdde0; color: var(--dim); font-size: 11px; }
 .explain p { margin: 0 0 4px; }

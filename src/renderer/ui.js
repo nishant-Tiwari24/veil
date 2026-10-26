@@ -256,5 +256,6 @@ $('level').onchange = e => api.invoke('setLevel', e.target.value)
 $('circuitbtn').onclick = () => api.invoke('panel', !state.panelOpen)
 $('closepanel').onclick = () => api.invoke('panel', false)
 $('newcircuit').onclick = async () => { await api.invoke('newCircuit'); setTimeout(refreshCircuit, 1500) }
+$('watchrouting').onclick = () => api.invoke('watchRouting')
 $('identitybtn').onclick = () => api.invoke('newIdentity')
 $('panicbtn').onclick = () => api.invoke('panic')
