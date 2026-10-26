@@ -9,7 +9,7 @@ async function waitFor(fn, ms, label) {
   throw new Error(`timed out waiting for ${label}`)
 }
 
-async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe }) {
+async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit }) {
   const results = []
   const check = (name, ok, detail) => {
     results.push(ok)
@@ -45,13 +45,15 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
 
   // End to end: load our own invite-only onion through Tor (descriptor takes a while to publish)
   const onionTab = createTab(site.url)
+  // Retry on a fresh circuit each time so a failed attempt isn't cached.
   const reached = await waitFor(async () => {
     if (!onionTab.view || onionTab.loading) return false
     const text = await onionTab.view.webContents.executeJavaScript('document.body ? document.body.innerText : ""').catch(() => '')
     if (/You made it/.test(text)) return true
-    onionTab.view.webContents.reload()
+    await new Promise(r => setTimeout(r, 10000))
+    await newCircuit()
     return false
-  }, 180000, 'onion site').catch(() => false)
+  }, 300000, 'onion site').catch(() => false)
   check('invite-only onion site reachable over Tor', reached)
 
   const failed = results.filter(r => !r).length
