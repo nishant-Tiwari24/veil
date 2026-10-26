@@ -522,9 +522,10 @@ app.whenReady().then(async () => {
       screen: screen.width + 'x' + screen.height,
       inner: innerWidth + 'x' + innerHeight,
     })`)
-    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe })
-      .then(failed => app.exit(failed ? 1 : 0))
-      .catch(err => { console.error('SELFTEST ERROR', err); app.exit(2) })
+    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite })
+      .then(failed => failed ? 1 : 0)
+      .catch(err => { console.error('SELFTEST ERROR', err); return 2 })
+      .then(code => { community.stop(); tor.stop(); app.exit(code) }) // app.exit skips before-quit
   }
 })
 
