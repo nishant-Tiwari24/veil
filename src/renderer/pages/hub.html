@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Veil</title>
+<style>
+  :root { --bg:#0d0f14; --bg-2:#151821; --bg-3:#1d2130; --line:#262b3b; --text:#e8e6f0; --muted:#8f8aa3;
+          --accent:#9b7bff; --accent-2:#6d4dff; --good:#3fd28b; --warn:#f5b84a; --bad:#ff5f6d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 50% -200px, #2a1f5c55, transparent), var(--bg);
+         color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
+  .hero { text-align: center; margin-bottom: 36px; }
+  .logo { font-size: 44px; }
+  h1 { font-size: 34px; margin: 6px 0 4px; letter-spacing: -.02em; }
+  .tag { color: var(--muted); margin: 0 0 18px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px;
+            background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .status.ready .dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .status.error .dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+  form.search { display: flex; gap: 8px; margin: 26px auto 0; max-width: 620px; }
+  input, textarea { width: 100%; padding: 13px 16px; border-radius: 12px; border: 1px solid var(--line);
+         background: var(--bg-2); color: var(--text); font: inherit; outline: none; }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #9b7bff22; }
+  textarea { resize: vertical; min-height: 60px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  button { padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-3);
+           color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent-2); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  section { margin-top: 40px; }
+  h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; border: 1px solid; }
+  .badge.ok { color: var(--good); border-color: #3fd28b55; background: #3fd28b14; }
+  .badge.bad { color: var(--bad); border-color: #ff5f6d55; background: #ff5f6d14; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .card { padding: 16px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); cursor: pointer;
+          transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .card h3 { margin: 0 0 4px; font-size: 15px; }
+  .card p { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  .addr { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--accent); word-break: break-all; }
+  .panel { padding: 18px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label.check { display: flex; align-items: center; gap: 8px; color: var(--muted); cursor: pointer; }
+  .msg { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .msg.err { color: var(--bad); }
+  .hosted { margin-top: 14px; display: grid; gap: 10px; }
+  .hostcard { padding: 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+  .hostcard .top { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .hostcard .addr { font-size: 12px; }
+  .invite { margin-top: 8px; padding: 10px; border-radius: 8px; background: var(--bg-3); font-family: ui-monospace, Menlo, monospace;
+            font-size: 11px; word-break: break-all; color: var(--warn); }
+  .small { font-size: 12px; }
+  .links { margin-top: 40px; text-align: center; color: var(--muted); }
+  .links a { color: var(--accent); cursor: pointer; text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div class="logo">🧅</div>
+    <h1>Veil</h1>
+    <p class="tag">Every site isolated. Every request through Tor. Nothing kept.</p>
+    <div id="status" class="status"><span class="dot"></span><span id="statustext">Starting tor…</span></div>
+    <form class="search" id="search">
+      <input id="q" placeholder="Search with DuckDuckGo (onion) or enter an address" autofocus>
+      <button class="primary">Go</button>
+    </form>
+  </div>
+
+  <section>
+    <h2>Community directory <span id="verify" class="badge"></span></h2>
+    <p class="sub" id="dirsub">Onion sites curated by your community. The list is signed — Veil rejects it if anyone tampers with it.</p>
+    <div class="grid" id="sites"></div>
+  </section>
+
+  <section>
+    <h2>Join an invite-only site</h2>
+    <p class="sub">Invite-only onion sites are invisible without a key. Paste an invite from a community member.</p>
+    <div class="panel">
+      <textarea id="invite" placeholder="veil-invite:xxxxxxxx.onion:key"></textarea>
+      <div class="row" style="margin-top:10px"><button id="join" class="primary">Join &amp; open</button></div>
+      <div id="joinmsg" class="msg"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Host a site</h2>
+    <p class="sub">Publish a folder from this computer as an onion service. No server, no domain, no IP address. It stays online while Veil is open.</p>
+    <div class="panel">
+      <div class="row">
+        <button id="hostsample" class="primary">Host sample site</button>
+        <button id="hostfolder">Choose folder…</button>
+        <label class="check"><input type="checkbox" id="inviteonly" checked style="width:auto"> Invite-only (client authorization)</label>
+      </div>
+      <div id="hostmsg" class="msg"></div>
+      <div id="hosted" class="hosted"></div>
+    </div>
+  </section>
+
+  <div class="links"><a id="leaktest">Run leak test →</a></div>
+</main>
+<script>
+const $ = id => document.getElementById(id)
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n }
+
+async function pollStatus() {
+  try {
+    const { tor } = await veil.status()
+    const s = $('status')
+    s.className = 'status' + (tor.ready ? ' ready' : tor.error ? ' error' : '')
+    $('statustext').textContent = tor.ready ? 'Connected to the Tor network' : tor.error || `Connecting to Tor… ${tor.progress}% · ${tor.summary}`
+    if (!tor.ready) setTimeout(pollStatus, 700)
+  } catch { setTimeout(pollStatus, 1000) }
+}
+
+async function loadDirectory() {
+  const dir = await veil.directory()
+  const badge = $('verify')
+  badge.className = 'badge ' + (dir.verified ? 'ok' : 'bad')
+  badge.textContent = dir.verified ? `✓ Signed · key ${dir.fingerprint}` : '✗ Not verified'
+  if (!dir.verified) $('dirsub').textContent = `Directory rejected: ${dir.error}`
+  $('sites').replaceChildren(...(dir.sites || []).map(site => {
+    const c = el('div', 'card')
+    c.append(el('h3', null, site.name), el('p', null, site.description), el('div', 'addr', site.url))
+    c.onclick = () => veil.open(site.url)
+    return c
+  }))
+}
+
+function showMsg(id, text, isErr) {
+  const m = $(id); m.textContent = text; m.className = 'msg' + (isErr ? ' err' : '')
+}
+
+async function renderHosted() {
+  const list = await veil.hosted()
+  $('hosted').replaceChildren(...list.map(site => {
+    const c = el('div', 'hostcard')
+    const top = el('div', 'top')
+    top.append(el('b', null, site.inviteOnly ? '🔐 Invite-only site' : '🌐 Public onion site'))
+    const btns = el('div', 'row')
+    const open = el('button', null, 'Open'); open.onclick = () => veil.open(site.url)
+    const copy = el('button', null, site.inviteOnly ? 'Copy invite' : 'Copy address')
+    copy.onclick = async () => { await navigator.clipboard.writeText(site.invite || site.url); copy.textContent = 'Copied ✓' }
+    const stop = el('button', null, 'Stop'); stop.onclick = async () => { await veil.stopHosting(site.serviceId); renderHosted() }
+    btns.append(open, copy, stop)
+    top.append(btns)
+    c.append(top, el('div', 'addr', site.url), el('div', 'small', `Serving ${site.folder}`))
+    if (site.invite) c.append(el('div', 'invite', site.invite))
+    return c
+  }))
+}
+
+async function host(fn) {
+  showMsg('hostmsg', 'Publishing onion service…')
+  try {
+    const site = await fn($('inviteonly').checked)
+    if (!site) return showMsg('hostmsg', '')
+    showMsg('hostmsg', 'Published! It can take ~30–60 seconds before the network can reach it.')
+    renderHosted()
+  } catch (e) { showMsg('hostmsg', e.message.replace(/^.*Error: /, ''), true) }
+}
+
+$('search').onsubmit = e => { e.preventDefault(); if ($('q').value.trim()) veil.open($('q').value) }
+$('join').onclick = async () => {
+  try {
+    const { url } = await veil.join($('invite').value)
+    showMsg('joinmsg', 'Key added. Opening…')
+    veil.open(url)
+  } catch (e) { showMsg('joinmsg', e.message.replace(/^.*Error: /, ''), true) }
+}
+$('hostsample').onclick = () => host(veil.hostSample)
+$('hostfolder').onclick = () => host(veil.hostFolder)
+$('leaktest').onclick = () => veil.open('veil://leaktest/')
+
+pollStatus()
+loadDirectory()
+renderHosted()
+</script>
+</body>
+</html>
