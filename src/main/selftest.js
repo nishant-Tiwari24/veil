@@ -75,6 +75,22 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   await new Promise(r => setTimeout(r, 800))
   check('clicking × closes the tab', browser.tabCount() === beforeClose - 1, `${beforeClose} → ${browser.tabCount()} tabs`)
 
+  // Ad & tracker blocking: the engine, then a real ad-heavy page through Tor
+  const req = url => browser.adblock.check({ url, resourceType: 'script', referrer: 'https://example.com/' }, 'example.com')
+  const ad = req('https://securepubads.g.doubleclick.net/tag/js/gpt.js')
+  const pixel = browser.adblock.check({ url: 'https://ad.doubleclick.net/ddm/ad/x.gif', resourceType: 'image', referrer: 'https://example.com/' }, 'example.com')
+  const own = req('https://example.com/app.js')
+  check('ad blocker: ads stopped, site scripts untouched', !!ad?.redirectURL && pixel?.cancel === true && own === null,
+    'gpt.js → no-op stand-in, ad pixel → blocked, app.js → allowed')
+  const adTab = createTab('https://www.theguardian.com/international')
+  await waitFor(() => adTab.view && !adTab.loading && adTab.title !== 'New Tab', 90000, 'ad page').catch(() => {})
+  await new Promise(r => setTimeout(r, 3000))
+  check('ads & trackers blocked on a real page', adTab.blocked > 0, `${adTab.blocked} blocked on theguardian.com`)
+  await new Promise(r => setTimeout(r, 600))
+  const badge = await browser.uiView.webContents.executeJavaScript(
+    `({ hidden: document.getElementById('adblockbtn').hidden, text: document.getElementById('adblockcount').textContent })`)
+  check('shield badge shows the count in the toolbar', !badge.hidden && Number(badge.text) === adTab.blocked, `badge: ${badge.text}`)
+
   const olTab = createTab('https://www.torproject.org/')
   const ol = await waitFor(() => olTab.onionLocation, 60000, 'Onion-Location').catch(() => null)
   check('".onion available" detected', !!ol, ol)
