@@ -46,3 +46,13 @@
 - [x] WebRTC leak test clean
 - [x] Two sites → two different exit IPs
 - [x] Host an invite-only onion, open it from a second tor instance via invite
+
+## Phase 8 — Everyday browser
+- [x] Chrome 2008 look: light chrome, slanted tabs, Segoe UI/Tahoma, red accent
+- [x] Tab drag-reorder, tab context menu, reopen closed tab, ⌘1–9, Ctrl+Tab
+- [x] Page context menu, find in page, zoom, print, full screen
+- [x] Favicons through Tor, search terms shown in the address bar
+- [x] Bookmarks (opt-in, wiped by Panic), session-only history + suggestions
+- [x] Downloads with an IP-leak warning
+- [x] Onion-Location (".onion available")
+- [ ] Tor bridges (obfs4/snowflake) for networks that block Tor
