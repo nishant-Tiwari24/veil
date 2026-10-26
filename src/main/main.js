@@ -859,6 +859,16 @@ function createWindow() {
   layout()
 }
 
+// One Veil at a time: `npx electron . <url>` opens the URL in the running
+// window instead of starting a second browser (and a second tor).
+const testMode = process.env.VEIL_SELFTEST || process.env.VEIL_DEMO || process.env.VEIL_FP
+const urlArgs = argv => argv.filter(a => /^(https?|veil):\/\//i.test(a))
+if (!testMode && !app.requestSingleInstanceLock()) app.quit()
+app.on('second-instance', (e, argv) => {
+  for (const url of urlArgs(argv)) createTab(url)
+  if (win) { win.show(); win.focus() }
+})
+
 app.whenReady().then(async () => {
   // The UI loads from disk; refuse any network from the default session too.
   session.defaultSession.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !/^(file|devtools|data):/.test(d.url) }))
@@ -888,6 +898,7 @@ app.whenReady().then(async () => {
   await relay.rotate(identity.nonce)
 
   createTab(HOME)
+  for (const url of urlArgs(process.argv)) createTab(url)
 
   if (process.env.VEIL_DEMO) {
     const { runDemo } = require('./demo')
