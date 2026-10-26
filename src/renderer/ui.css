@@ -89,6 +89,11 @@ select.btn { padding: 0 4px; appearance: auto; }
 /* address bar extras */
 #starbtn, #zoombadge, #onionbtn { flex: none; height: 19px; border: 0; background: none; padding: 0 3px; color: var(--dim); cursor: default; }
 #starbtn:hover { color: #000; }
+#adblockbtn { flex: none; display: flex; align-items: center; gap: 3px; height: 19px; padding: 0 5px; border: 1px solid #c9cacd;
+  border-radius: 2px; background: linear-gradient(#fff, #eee); color: var(--red); font: bold 11px var(--ui-font); cursor: default; }
+#adblockbtn svg { width: 12px; height: 12px; }
+#adblockbtn:hover { border-color: var(--red); }
+#adblockbtn.off { color: var(--faint); font-weight: normal; text-decoration: line-through; }
 #starbtn.on { color: var(--red); }
 #zoombadge { font-size: 11px; border: 1px solid #c9cacd; border-radius: 2px; padding: 0 5px; }
 #onionbtn { padding: 0 7px; color: #fff; background: var(--red); border-radius: 2px; font-size: 11px; font-weight: bold; }
