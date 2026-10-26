@@ -61,6 +61,20 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   browser.ui.reopenClosed()
   check('reopen closed tab', browser.tabCount() === before)
 
+  // Click the real × of a tab with OS-level mouse events, the way a user does.
+  createTab('veil://hub/')
+  await new Promise(r => setTimeout(r, 800))
+  const beforeClose = browser.tabCount()
+  const box = await browser.uiView.webContents.executeJavaScript(`(() => {
+    const r = document.querySelector('#tabs .tab:last-child .close').getBoundingClientRect()
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+  })()`)
+  for (const type of ['mouseDown', 'mouseUp']) {
+    browser.uiView.webContents.sendInputEvent({ type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
+  }
+  await new Promise(r => setTimeout(r, 800))
+  check('clicking × closes the tab', browser.tabCount() === beforeClose - 1, `${beforeClose} → ${browser.tabCount()} tabs`)
+
   const olTab = createTab('https://www.torproject.org/')
   const ol = await waitFor(() => olTab.onionLocation, 60000, 'Onion-Location').catch(() => null)
   check('".onion available" detected', !!ol, ol)
