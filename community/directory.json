@@ -1,0 +1,21 @@
+{
+  "name": "Veil Community",
+  "updated": "2026-10-26",
+  "sites": [
+    {
+      "name": "The Tor Project",
+      "description": "Official Tor Project website, served as an onion service.",
+      "url": "http://2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion/"
+    },
+    {
+      "name": "DuckDuckGo",
+      "description": "Private search engine — the onion version.",
+      "url": "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/"
+    },
+    {
+      "name": "ProPublica",
+      "description": "Investigative journalism, reachable without leaving Tor.",
+      "url": "http://p53lf57qovyuvwsc6xnrppyply3vtqm7l6pcobkmyqsiofyeznfu5uqd.onion/"
+    }
+  ]
+}
