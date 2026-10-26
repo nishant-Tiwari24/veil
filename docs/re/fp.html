@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>fp</title>
+<style>body{font:16px/1.5 monospace;margin:20px;background:#fff;color:#000} td{padding:2px 12px;border-bottom:1px solid #ddd;vertical-align:top} td:first-child{font-weight:bold;white-space:nowrap}</style>
+</head><body><h2 id="h">What a website can see</h2><table id="t"></table>
+<script>
+const rows = []
+const add = (k, v) => rows.push([k, String(v)])
+const safe = f => { try { return f() } catch (e) { return 'ERR ' + e.message } }
+add('userAgent', navigator.userAgent)
+add('platform', navigator.platform)
+add('languages', navigator.languages && navigator.languages.join(','))
+add('timezone', safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone))
+add('tz offset', new Date().getTimezoneOffset())
+add('cores', navigator.hardwareConcurrency)
+add('deviceMemory', navigator.deviceMemory)
+add('screen', screen.width + 'x' + screen.height + ' avail ' + screen.availWidth + 'x' + screen.availHeight)
+add('window inner', innerWidth + 'x' + innerHeight)
+add('devicePixelRatio', devicePixelRatio)
+add('colorDepth', screen.colorDepth)
+add('maxTouchPoints', navigator.maxTouchPoints)
+add('RTCPeerConnection', typeof window.RTCPeerConnection)
+add('navigator.connection', typeof navigator.connection)
+add('serviceWorker', typeof navigator.serviceWorker)
+add('getBattery', typeof navigator.getBattery)
+add('mediaDevices', typeof navigator.mediaDevices)
+add('WebGL renderer', safe(() => { const g = document.createElement('canvas').getContext('webgl'); if (!g) return 'no webgl'; const e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER) }))
+add('WebGL2', safe(() => !!document.createElement('canvas').getContext('webgl2')))
+add('OffscreenCanvas', typeof window.OffscreenCanvas)
+add('SharedArrayBuffer', typeof window.SharedArrayBuffer)
+add('performance.now() res', safe(() => { let a = performance.now(), b; do { b = performance.now() } while (b === a); return (b - a).toFixed(4) + ' ms' }))
+add('fonts: Helvetica/Arial/Comic/Menlo', safe(() => ['Helvetica','Arial','Comic Sans MS','Menlo','Noto Sans Devanagari'].map(f => f.split(' ')[0] + ':' + document.fonts.check('12px "' + f + '"')).join(' ')))
+add('prefers-color-scheme dark', matchMedia('(prefers-color-scheme: dark)').matches)
+add('reduced-motion', matchMedia('(prefers-reduced-motion: reduce)').matches)
+add('canvas hash', safe(() => { const c = document.createElement('canvas'); c.width = 200; c.height = 40; const x = c.getContext('2d'); x.fillStyle = '#f60'; x.fillRect(10, 5, 100, 30); x.fillStyle = '#069'; x.font = '16px Arial'; x.fillText('fingerprint', 4, 24); let h = 0; for (const ch of c.toDataURL()) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0; return (h >>> 0).toString(16) }))
+document.getElementById('t').innerHTML = rows.map(([k, v]) => '<tr><td>' + k + '</td><td>' + v.replace(/</g, '&lt;') + '</td></tr>').join('')
+document.title = 'FP:' + JSON.stringify(Object.fromEntries(rows))
+</script></body></html>
