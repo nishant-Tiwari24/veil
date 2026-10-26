@@ -3,7 +3,16 @@
 // globals; the sandbox means no Node APIs exist here to leak.
 const { ipcRenderer } = require('electron')
 
-const cfg = ipcRenderer.sendSync('veil:page-config') || { seed: 0, level: 'standard' }
+const cfg = ipcRenderer.sendSync('veil:page-config') || { seed: 0, level: 'standard', os: 'windows' }
+
+// Per-OS buckets, like Tor Browser: report your real OS *family* with generic
+// values. Pretending to be another OS is worse: fonts and rendering still give
+// the real OS away, and the mismatch makes you stand out (REVERSE_ENGINEERING.md §7).
+const OS = {
+  mac: { platform: 'MacIntel', uaPlatform: 'macOS', platformVersion: '10.15.7' },
+  windows: { platform: 'Win32', uaPlatform: 'Windows', platformVersion: '10.0.0' },
+  linux: { platform: 'Linux x86_64', uaPlatform: 'Linux', platformVersion: '' },
+}[cfg.os] || { platform: 'Win32', uaPlatform: 'Windows', platformVersion: '10.0.0' }
 
 function getter(obj, prop, get) {
   try { Object.defineProperty(obj, prop, { get, configurable: true }) } catch {}
@@ -12,7 +21,7 @@ function getter(obj, prop, get) {
 // --- Hardware & platform: everyone reports the same values ---
 getter(Navigator.prototype, 'hardwareConcurrency', () => 4)
 getter(Navigator.prototype, 'deviceMemory', () => 8)
-getter(Navigator.prototype, 'platform', () => 'Win32')
+getter(Navigator.prototype, 'platform', () => OS.platform)
 getter(Navigator.prototype, 'language', () => 'en-US')
 getter(Navigator.prototype, 'languages', () => ['en-US', 'en'])
 getter(Navigator.prototype, 'maxTouchPoints', () => 0)
@@ -20,11 +29,11 @@ getter(Navigator.prototype, 'maxTouchPoints', () => 0)
 if (navigator.userAgentData) {
   const brands = navigator.userAgentData.brands
   const full = navigator.userAgent.match(/Chrome\/([\d.]+)/)?.[1] || ''
-  const lowEntropy = { brands, mobile: false, platform: 'Windows' }
+  const lowEntropy = { brands, mobile: false, platform: OS.uaPlatform }
   const fakeUAData = {
     ...lowEntropy,
     getHighEntropyValues: async () => ({
-      ...lowEntropy, architecture: 'x86', bitness: '64', model: '', platformVersion: '10.0.0',
+      ...lowEntropy, architecture: 'x86', bitness: '64', model: '', platformVersion: OS.platformVersion,
       uaFullVersion: full, fullVersionList: brands, wow64: false,
     }),
     toJSON: () => lowEntropy,
@@ -51,6 +60,24 @@ for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel
 }
 getter(Navigator.prototype, 'mediaDevices', () => undefined)
 try { delete Navigator.prototype.getBattery } catch {}
+
+// --- Removed like Tor Browser (dom.netinfo.enabled, dom.serviceWorkers.enabled = false) ---
+// navigator.connection reveals network type/speed; service workers are
+// background scripts a site can install.
+for (const k of ['connection', 'serviceWorker']) {
+  try { delete Navigator.prototype[k] } catch {}
+}
+
+// --- Coarse timers: Tor Browser clamps performance.now() to one frame (16.67 ms) ---
+// Precise timing lets sites fingerprint hardware and run side-channel attacks.
+const TICK = 1000 / 60
+const clamp = t => Math.floor(t / TICK) * TICK
+const origNow = Performance.prototype.now
+Performance.prototype.now = function () { return clamp(origNow.call(this)) }
+const tsDesc = Object.getOwnPropertyDescriptor(Event.prototype, 'timeStamp')
+if (tsDesc?.get) getter(Event.prototype, 'timeStamp', function () { return clamp(tsDesc.get.call(this)) })
+const origRAF = window.requestAnimationFrame
+window.requestAnimationFrame = function (cb) { return origRAF.call(window, t => cb(clamp(t))) }
 
 // --- Canvas: reads get faint per-site, per-identity noise ---
 // Stable within a site (so pages work) but different across sites and identities,
@@ -88,6 +115,16 @@ HTMLCanvasElement.prototype.toDataURL = function (...args) {
 }
 HTMLCanvasElement.prototype.toBlob = function (...args) {
   return origToBlob.apply(noisyCopy(this) || this, args)
+}
+
+// --- WebGL2 off, like Tor Browser (webgl.enable-webgl2 = false) ---
+for (const proto of [HTMLCanvasElement.prototype, window.OffscreenCanvas?.prototype]) {
+  if (!proto) continue
+  const orig = proto.getContext
+  proto.getContext = function (type, ...rest) {
+    if (/^(experimental-)?webgl2$/.test(String(type))) return null
+    return orig.call(this, type, ...rest)
+  }
 }
 
 // --- WebGL: hide the real GPU ---
