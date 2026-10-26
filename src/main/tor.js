@@ -89,6 +89,7 @@ class TorManager extends EventEmitter {
   }
 
   _onLog(line) {
+    if (process.env.VEIL_DEBUG) console.log('[tor]', line)
     const m = line.match(/Bootstrapped (\d+)%[^:]*: (.*)$/)
     if (m) {
       this.progress = Number(m[1])

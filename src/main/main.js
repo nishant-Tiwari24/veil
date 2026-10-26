@@ -375,7 +375,7 @@ function replaceView(tab, site, ses, js = true) {
     if (!isMainFrame || code === -3) return // -3 = aborted (we redirected it)
     const se = socksErrors.get(tab.site)
     tab.httpFallback = null
-    if (!tor.ready) tab.error = 'Blocked: not connected to Tor yet'
+    if (!tor.ready) tab.error = 'Waiting for Tor to connect (takes about 15 seconds). This page will load by itself.'
     else if (se && Date.now() - se.at < 60000 && ONION_ERRORS[se.code]) tab.error = ONION_ERRORS[se.code]
     else if (tab.upgradedFrom && url.startsWith('https://')) {
       tab.error = "This site doesn't offer a secure connection (HTTPS). Veil upgrades every site to HTTPS, like Tor Browser's HTTPS-Only mode."
@@ -873,7 +873,16 @@ app.whenReady().then(async () => {
     onError: (site, code) => socksErrors.set(site, { code, at: Date.now() }),
   })
   community = new Community({ getControl: () => tor.control })
-  tor.on('status', sendState)
+  // Tabs blocked by the kill switch while tor was still connecting load
+  // themselves as soon as it's ready.
+  let wasReady = false
+  tor.on('status', () => {
+    if (tor.ready && !wasReady) {
+      wasReady = true
+      for (const t of tabs.values()) if (t.error && t.url && t.site !== 'veil') loadInTab(t, t.url)
+    }
+    sendState()
+  })
   await tor.start()
   relay.torPort = tor.socksPort
   await relay.rotate(identity.nonce)
