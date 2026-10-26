@@ -159,7 +159,7 @@ async function host(fn) {
   try {
     const site = await fn($('inviteonly').checked)
     if (!site) return showMsg('hostmsg', '')
-    showMsg('hostmsg', 'Published! It can take ~30–60 seconds before the network can reach it.')
+    showMsg('hostmsg', 'Published! It takes 1–2 minutes to appear on the Tor network. If it doesn't open yet, wait and press ⌘⇧L (new circuit).')
     renderHosted()
   } catch (e) { showMsg('hostmsg', e.message.replace(/^.*Error: /, ''), true) }
 }
