@@ -30,7 +30,8 @@ function reader(sock) {
   }
 }
 
-// Reads a SOCKS5 CONNECT request and returns its raw bytes.
+// Reads a SOCKS5 request (or reply, which has the same layout) and returns
+// its second byte (CMD / REP) and raw bytes.
 async function readRequest(r) {
   const head = await r.read(4) // VER CMD RSV ATYP
   let addr
@@ -45,9 +46,10 @@ async function readRequest(r) {
 }
 
 class IsolationRelay {
-  constructor({ torPort, isReady }) {
+  constructor({ torPort, isReady, onError }) {
     this.torPort = torPort
     this.isReady = isReady
+    this.onError = onError
     this.listeners = new Map() // site -> Promise<{server, port}>
     this.sockets = new Set()
     this.salts = new Map()
@@ -110,8 +112,18 @@ class IsolationRelay {
       const auth = await tr.read(2)
       if (auth[1] !== 0x00) throw new Error('tor auth failed')
 
-      // Forward the original CONNECT; tor's reply goes straight back to Chromium.
+      // Forward the original CONNECT and relay tor's reply. With ExtendedErrors,
+      // onion failures come back as codes 0xF0-0xF7; report them so the browser
+      // can say *why* (not found, needs an invite, bad address...).
       tor.write(req.raw)
+      const reply = await readRequest(tr) // same layout as a request: VER REP RSV ATYP ADDR PORT
+      client.write(reply.raw)
+      if (reply.cmd !== 0x00) { // REP field
+        this.onError?.(site, reply.cmd)
+        client.end()
+        tor.destroy()
+        return
+      }
       const leftClient = cr.release()
       const leftTor = tr.release()
       if (leftTor.length) client.write(leftTor)
