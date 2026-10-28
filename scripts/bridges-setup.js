@@ -22,3 +22,11 @@ fs.mkdirSync(path.dirname(dest), { recursive: true })
 fs.copyFileSync(src, dest)
 fs.chmodSync(dest, 0o755)
 console.log(`Copied ${src} -> bin/lyrebird`)
+
+// lyrebird is BSD-licensed: keep its licence next to the binary
+const pt = path.dirname(src)
+const licence = [
+  path.join(pt, '..', '..', 'Docs', 'Licenses', 'lyrebird.txt'), // Linux: Browser/TorBrowser/Tor/PluggableTransports
+  path.join(pt, '..', '..', '..', 'Resources', 'TorBrowser', 'Docs', 'Licenses', 'lyrebird.txt'), // macOS: Contents/MacOS/Tor/PluggableTransports
+].find(p => fs.existsSync(p))
+if (licence) fs.copyFileSync(licence, path.join(path.dirname(dest), 'lyrebird-LICENSE.txt'))
