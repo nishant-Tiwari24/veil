@@ -22,7 +22,13 @@ async function runDemo({ tor, urls, createTab, uiView, outDir, activate, setPane
     await sleep(3500) // circuit panel refresh
     const name = String(i + 1).padStart(2, '0') + '-' + (tab.site || 'page').replace(/[^a-z0-9.-]/gi, '_')
     const shoot = async (wc, file) => {
-      try { fs.writeFileSync(path.join(outDir, file), (await wc.capturePage()).toPNG()) } catch {} // not painted yet
+      for (let i = 0; i < 5; i++) { // a view that hasn't painted yet throws; retry
+        try {
+          const img = await wc.capturePage()
+          if (!img.isEmpty()) return fs.writeFileSync(path.join(outDir, file), img.toPNG())
+        } catch {}
+        await sleep(1000)
+      }
     }
     await shoot(uiView.webContents, `${name}-ui.png`)
     if (tab.view && !tab.error) await shoot(tab.view.webContents, `${name}-page.png`)

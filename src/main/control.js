@@ -100,6 +100,20 @@ class TorControl {
     return { id: parts[0], purpose, hops }
   }
 
+  // Live streams (TCP connections) tor has attached to a circuit.
+  async streamsOn(circuitId) {
+    const status = await this.getinfo('stream-status').catch(() => '')
+    return status.split('\n').filter(Boolean)
+      .map(l => l.split(' '))
+      .filter(p => p[2] === circuitId)
+      .map(([id, state, , target]) => ({ id, state, target }))
+  }
+
+  async traffic() {
+    const [read, written] = await Promise.all([this.getinfo('traffic/read'), this.getinfo('traffic/written')])
+    return { read: Number(read), written: Number(written) }
+  }
+
   close() {
     this.sock?.destroy()
   }

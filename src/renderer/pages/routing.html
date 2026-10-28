@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onion Routing</title>
+<style>
+  :root { --text:#1b1b1b; --dim:#5f6368; --faint:#9a9da2; --line:#c9cacd; --red:#c4161c; --red-2:#e0565b; --red-3:#f2a7aa;
+          --ui: "Segoe UI", Tahoma, Verdana, sans-serif; --mono: "Courier New", Courier, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--text); font: 13px/1.45 var(--ui); }
+  main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 48px; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { font: bold 22px var(--ui); margin: 0; }
+  .sub { color: var(--dim); margin: 4px 0 0; font-size: 12px; }
+  select, button { height: 27px; padding: 0 10px; border: 1px solid #a7a9ad; border-radius: 3px; color: #222; font: 12px var(--ui);
+           background: linear-gradient(#fff, #e3e3e3); }
+  button:hover { border-color: #7d8085; }
+  button.on { background: linear-gradient(#d4d5d8, #e8e8ea); }
+  .controls { display: flex; gap: 6px; align-items: center; }
+
+  /* stage */
+  .stage { position: relative; margin-top: 18px; padding: 34px 20px 26px; border: 1px solid var(--line);
+           background: linear-gradient(#fbfbfb, #f1f1f2); overflow: hidden; }
+  .nodes { position: relative; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .wire { position: absolute; left: 40px; right: 40px; top: 31px; height: 2px; background: repeating-linear-gradient(90deg, #b9bbbf 0 8px, transparent 8px 14px); }
+  .node { position: relative; z-index: 1; flex: 1; min-width: 0; text-align: center; }
+  .dot { width: 62px; height: 62px; margin: 0 auto 8px; border-radius: 50%; display: grid; place-items: center;
+         background: #fff; border: 2px solid #8f9297; font: bold 11px var(--ui); color: var(--dim); transition: border-color .3s, box-shadow .3s; }
+  .node.relay .dot { border-color: var(--red); color: var(--red); }
+  .node.hidden .dot { border-style: dashed; border-color: var(--faint); color: var(--faint); }
+  .node.here .dot { box-shadow: 0 0 0 5px #c4161c22; }
+  .role { font: bold 10px var(--ui); letter-spacing: .07em; text-transform: uppercase; color: var(--red); }
+  .node.end .role, .node.hidden .role { color: var(--dim); }
+  .name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { font: 11px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+
+  /* the packet */
+  .packet { position: absolute; top: 34px; width: 0; height: 0; z-index: 2; transition: left 1.1s ease-in-out; }
+  .ring { position: absolute; border-radius: 50%; transform: translate(-50%, -50%) scale(1); transition: transform .45s, opacity .45s; }
+  .ring.l3 { width: 50px; height: 50px; background: var(--red); }
+  .ring.l2 { width: 38px; height: 38px; background: var(--red-2); }
+  .ring.l1 { width: 26px; height: 26px; background: var(--red-3); }
+  .ring.core { width: 14px; height: 14px; background: #1b1b1b; }
+  .ring.gone { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+  .packet.reply .ring.core { background: #fff; border: 2px solid #1b1b1b; }
+
+  .caption { margin-top: 22px; min-height: 64px; padding: 10px 14px; border-left: 3px solid var(--red); background: #fff;
+             border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .caption b { display: block; margin-bottom: 2px; }
+  .caption span { color: var(--dim); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: var(--dim); }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+
+  /* sees table + live */
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-top: 18px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  section { border: 1px solid var(--line); }
+  h2 { margin: 0; padding: 5px 10px; font: bold 12px var(--ui); background: linear-gradient(#fff, #e4e5e7); border-bottom: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { padding: 5px 10px; border-top: 1px solid #ececed; text-align: left; vertical-align: top; }
+  th { font-weight: bold; color: var(--dim); font-size: 11px; border-top: 0; }
+  .yes { color: var(--red); font-weight: bold; }
+  .no { color: var(--faint); }
+  .live { padding: 8px 10px; font: 11px var(--mono); }
+  .live .stat { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #ddd; }
+  .live ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 140px; overflow: auto; }
+  .live li { padding: 2px 0; overflow-wrap: anywhere; }
+  .empty { padding: 40px; text-align: center; color: var(--dim); }
+  .note { margin-top: 10px; font-size: 11px; color: var(--faint); }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div>
+      <h1>Onion routing, live</h1>
+      <p class="sub">The relays below are your real Tor circuit for this site, read from tor right now.</p>
+    </div>
+    <div class="controls">
+      <select id="site" title="Site"></select>
+      <button id="play" class="on">Pause</button>
+      <button id="prev">&lsaquo; Step</button>
+      <button id="next">Step &rsaquo;</button>
+    </div>
+  </div>
+
+  <div id="content"></div>
+  <p class="note">The relays, IPs, connections and byte counts are live from tor. The packet animation illustrates what tor does with every cell it sends: wrap three layers, peel one per relay.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id)
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n }
+const params = new URLSearchParams(location.search)
+let data = null
+let step = 0
+let playing = true
+let timer = null
+
+const fmtBytes = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B'
+const short = s => s.length > 22 ? s.slice(0, 10) + '…' + s.slice(-9) : s
+
+// Build the list of nodes and the animation script for this circuit.
+function model(d) {
+  const onion = d.site.endsWith('.onion')
+  const h = d.circuit.hops
+  const relay = (role, hop) => ({ kind: 'relay', role, name: hop.nickname, meta: `${hop.ip || ''}${hop.country ? ' · ' + hop.country.toUpperCase() : ''}` })
+  const nodes = [{ kind: 'end', role: 'You', name: 'This browser', meta: 'your real IP' }]
+  if (!onion) {
+    nodes.push(relay('Guard', h[0]), relay('Middle', h[1]), relay('Exit', h[2]))
+    nodes.push({ kind: 'end', role: 'Website', name: d.site, meta: 'sees the exit IP only' })
+  } else {
+    nodes.push(relay('Guard', h[0]), relay('Middle', h[1]), relay('Rendezvous', h[2]))
+    nodes.push({ kind: 'hidden', role: "Service's relays", name: '3 hidden hops', meta: 'chosen by the site' })
+    nodes.push({ kind: 'end', role: 'Onion site', name: short(d.site), meta: 'its IP is hidden too' })
+  }
+  const n = h.map(x => x.nickname)
+  const steps = onion ? [
+    { at: 0, layers: 3, t: 'Your browser wraps the request in 3 layers', s: 'One layer for each of your relays. On top of that, the request is end-to-end encrypted to the onion site itself.' },
+    { at: 1, layers: 2, t: `Guard "${n[0]}" peels layer 1`, s: 'It knows your IP address, but the rest is still sealed: it cannot see where you are going.' },
+    { at: 2, layers: 1, t: `Middle "${n[1]}" peels layer 2`, s: 'It only knows the guard before it and the rendezvous after it. Not you, not the site.' },
+    { at: 3, layers: 0, t: `Rendezvous "${n[2]}" joins the two circuits`, s: 'You and the site each built 3 hops to this meeting point. It relays sealed data it cannot read.' },
+    { at: 4, layers: 0, t: "Through the site's own hidden relays", s: "The site chose these relays, so you never learn where it is hosted." },
+    { at: 5, layers: 0, t: 'The onion site receives your request', s: "6 relays in total, and neither side knows the other's IP address. No exit node is involved." },
+    { at: 0, layers: 0, reply: true, t: 'The reply travels back the same way', s: 'Each relay adds its layer again, and only your browser can unwrap all of them.' },
+  ] : [
+    { at: 0, layers: 3, t: 'Your browser wraps the request in 3 layers', s: 'One layer of encryption for each relay, nested like an onion. The exit’s layer is on the inside.' },
+    { at: 1, layers: 2, t: `Guard "${n[0]}" peels layer 1`, s: 'It sees your IP address and the next hop. The destination is still sealed inside.' },
+    { at: 2, layers: 1, t: `Middle "${n[1]}" peels layer 2`, s: 'It only knows the guard and the exit. It never sees you or the website.' },
+    { at: 3, layers: 0, t: `Exit "${n[2]}" peels the last layer`, s: `It sees the request is for ${d.site}, but has no idea who sent it.` },
+    { at: 4, layers: 0, t: `${d.site} receives the request`, s: `The website sees the exit relay's IP (${h[2].ip || 'a Tor exit'}), never yours.` },
+    { at: 0, layers: 0, reply: true, t: 'The reply travels back the same way', s: 'Each relay adds its layer back, and only your browser can unwrap all three.' },
+  ]
+  const sees = onion ? [
+    ['Your ISP', 'yes', 'no', 'no'],
+    [`Guard (${n[0]})`, 'yes', 'no', 'no'],
+    [`Middle (${n[1]})`, 'no', 'no', 'no'],
+    [`Rendezvous (${n[2]})`, 'no', 'no', 'no'],
+    ['Onion site', 'no', 'yes', 'yes'],
+  ] : [
+    ['Your ISP', 'yes', 'no', 'no'],
+    [`Guard (${n[0]})`, 'yes', 'no', 'no'],
+    [`Middle (${n[1]})`, 'no', 'no', 'no'],
+    [`Exit (${n[2]})`, 'no', 'yes', 'yes*'],
+    [d.site, 'no', 'yes', 'yes'],
+  ]
+  return { nodes, steps, sees, onion }
+}
+
+function build() {
+  const c = $('content')
+  if (!data?.circuit) {
+    c.replaceChildren(el('div', 'empty', data?.site
+      ? `No circuit for ${data.site} yet. Load the site in a tab, then come back.`
+      : 'Open a website in another tab first, then come back here.'))
+    return
+  }
+  const m = model(data)
+  const stage = el('div', 'stage')
+  const nodes = el('div', 'nodes')
+  nodes.append(el('div', 'wire'))
+  m.nodes.forEach(n => {
+    const d = el('div', `node ${n.kind}`)
+    d.append(el('div', 'dot', n.kind === 'relay' ? 'TOR' : n.kind === 'hidden' ? '?' : ''),
+      el('div', 'role', n.role), el('div', 'name', n.name), el('div', 'meta', n.meta))
+    nodes.append(d)
+  })
+  const packet = el('div', 'packet')
+  packet.id = 'packet'
+  for (const r of ['l3', 'l2', 'l1', 'core']) packet.append(el('div', `ring ${r}`))
+  nodes.append(packet)
+  const caption = el('div', 'caption')
+  caption.id = 'caption'
+  const legend = el('div', 'legend')
+  legend.innerHTML = '<span><i style="background:var(--red)"></i>Layer for guard</span><span><i style="background:var(--red-2)"></i>Layer for middle</span>'
+    + `<span><i style="background:var(--red-3)"></i>Layer for ${m.onion ? 'rendezvous' : 'exit'}</span><span><i style="background:#1b1b1b"></i>Your actual request</span>`
+  stage.append(nodes, caption, legend)
+
+  const grid = el('div', 'grid')
+  const seesSec = el('section')
+  seesSec.append(el('h2', null, 'Who can see what'))
+  const table = el('table')
+  const head = el('tr')
+  for (const h of ['', 'Your IP', 'The site you visit', 'Your request']) head.append(el('th', null, h))
+  table.append(head)
+  m.sees.forEach(row => {
+    const tr = el('tr')
+    row.forEach((v, i) => tr.append(el('td', i === 0 ? null : v.startsWith('yes') ? 'yes' : 'no', i === 0 ? v : v.startsWith('yes') ? (v === 'yes*' ? 'yes (if not HTTPS)' : 'yes') : 'no')))
+    table.append(tr)
+  })
+  seesSec.append(table)
+
+  const live = el('section')
+  live.append(el('h2', null, 'Live from tor'))
+  const body = el('div', 'live')
+  body.id = 'live'
+  live.append(body)
+  grid.append(seesSec, live)
+  c.replaceChildren(stage, grid)
+  c._model = m
+  renderLive()
+  show()
+}
+
+function renderLive() {
+  const body = $('live')
+  if (!body) return
+  const stat = (k, v) => { const d = el('div', 'stat'); d.append(el('span', null, k), el('b', null, v)); return d }
+  body.replaceChildren(
+    stat('Circuit', `#${data.circuit.id} (${data.circuit.purpose})`),
+    stat('Sent through Tor', data.traffic ? fmtBytes(data.traffic.written) : '?'),
+    stat('Received through Tor', data.traffic ? fmtBytes(data.traffic.read) : '?'),
+    stat('Open connections on this circuit', String(data.streams?.length || 0)),
+  )
+  const ul = el('ul')
+  const groups = new Map()
+  for (const s of data.streams || []) {
+    const k = `${s.state.toLowerCase()}  ${s.target}`
+    groups.set(k, (groups.get(k) || 0) + 1)
+  }
+  for (const [k, n] of groups) ul.append(el('li', null, n > 1 ? `${n} × ${k}` : k))
+  if (data.streams?.length) body.append(ul)
+}
+
+function show() {
+  const m = $('content')._model
+  if (!m) return
+  const s = m.steps[step]
+  const nodeEls = [...document.querySelectorAll('.node')]
+  nodeEls.forEach((n, i) => n.classList.toggle('here', i === s.at))
+  const target = nodeEls[s.at]
+  const packet = $('packet')
+  // first placement after a rebuild: jump there instead of sliding in from the edge
+  if (!packet.style.left) {
+    packet.style.transition = 'none'
+    packet.style.left = (target.offsetLeft + target.offsetWidth / 2) + 'px'
+    packet.offsetWidth // flush styles
+    packet.style.transition = ''
+  }
+  packet.style.left = (target.offsetLeft + target.offsetWidth / 2) + 'px'
+  packet.classList.toggle('reply', !!s.reply)
+  const rings = { l3: 3, l2: 2, l1: 1 }
+  for (const [cls, needed] of Object.entries(rings)) {
+    packet.querySelector('.' + cls).classList.toggle('gone', s.reply ? true : s.layers < needed)
+  }
+  $('caption').replaceChildren(el('b', null, `${step + 1}/${m.steps.length}  ${s.t}`), el('span', null, s.s))
+}
+
+function go(delta) {
+  const m = $('content')._model
+  if (!m) return
+  step = (step + delta + m.steps.length) % m.steps.length
+  show()
+}
+
+function schedule() {
+  clearInterval(timer)
+  if (playing) timer = setInterval(() => go(1), 2600)
+}
+
+async function load(site) {
+  try { data = await veil.routing(site) } catch (e) { data = null }
+  const sel = $('site')
+  sel.replaceChildren(...(data?.sites || []).map(s => { const o = el('option', null, s); o.value = s; return o }))
+  if (data?.site) sel.value = data.site
+  sel.hidden = !(data?.sites || []).length
+  step = 0
+  build()
+}
+
+// keep live numbers fresh without restarting the animation
+setInterval(async () => {
+  if (!data?.site) return
+  try {
+    const fresh = await veil.routing(data.site)
+    const changed = fresh.circuit?.id !== data.circuit?.id
+    data = fresh
+    if (changed) { step = 0; build() } else renderLive()
+  } catch {}
+}, 3000)
+
+$('site').onchange = e => load(e.target.value)
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; $('play').classList.toggle('on', playing); schedule() }
+$('next').onclick = () => { playing = false; $('play').textContent = 'Play'; $('play').classList.remove('on'); schedule(); go(1) }
+$('prev').onclick = () => { playing = false; $('play').textContent = 'Play'; $('play').classList.remove('on'); schedule(); go(-1) }
+window.onresize = show
+
+load(params.get('site'))
+schedule()
+</script>
+</body>
+</html>
