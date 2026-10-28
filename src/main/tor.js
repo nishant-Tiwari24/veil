@@ -50,11 +50,13 @@ class TorManager extends EventEmitter {
       '--defaults-torrc', emptyRc,
       '--DataDirectory', this.dataDir,
       // Different SOCKS username/password => different circuit (ADR 0003)
-      '--SocksPort', `127.0.0.1:${this.socksPort} IsolateSOCKSAuth`,
+      // Same SOCKS flags as Tor Browser (REVERSE_ENGINEERING.md §4)
+      '--SocksPort', `127.0.0.1:${this.socksPort} IsolateSOCKSAuth KeepAliveIsolateSOCKSAuth ExtendedErrors IPv6Traffic PreferIPv6`,
       '--ControlPort', `127.0.0.1:${this.controlPort}`,
       '--CookieAuthentication', '1',
       '--ClientOnly', '1',
       '--AvoidDiskWrites', '1',
+      '--DormantCanceledByStartup', '1', // from Tor Browser's torrc-defaults
       // tor exits on its own if Veil dies
       '--__OwningControllerProcess', String(process.pid),
       '--Log', 'notice stdout',

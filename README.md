@@ -49,7 +49,9 @@ VEIL_SELFTEST=1 npm start
 - Per-site Tor circuits and storage: sites can't link you
 - No local DNS, no WebRTC, no QUIC: no leaks around Tor
 - Amnesic: nothing written to disk
-- Fingerprint resistance: uniform UA, UTC timezone, letterboxing, canvas noise, WebGL masking
+- Fingerprint resistance (matched to Tor Browser): per-OS generic UA, UTC timezone, letterboxing, 16.67 ms timers,
+  canvas noise, WebGL masking, no WebGL2 / network info / service workers
+- HTTPS-Only mode, onion addresses never leak via Referer, specific onion error messages
 - Security levels: Standard / Safer / Safest (JavaScript off)
 - Live circuit map, New Identity (⌘⇧U), New Circuit (⌘⇧L), **Panic** (⌘⇧X)
 - **See onion routing** (⌘⇧O): an animated view of your real circuit, with a packet
@@ -72,8 +74,15 @@ to try a different exit relay.
 If your country or network blocks Tor itself, you would need Tor bridges. Veil
 doesn't support bridges yet.
 
+## How we reverse engineered Tor Browser
+We downloaded and verified Tor Browser 15.0.26, unpacked its app bundle and
+`omni.ja`, read its 455 hardening prefs and its tor-control, isolation,
+New Identity and security-level code, and measured its fingerprint side by
+side with Veil. Findings and the fixes they led to:
+**[docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md)**.
+
 ## Docs
-- [Plan](docs/PLAN.md) · [Architecture](docs/ARCHITECTURE.md) · [ADRs](docs/adr) · [TODO](docs/TODO.md)
+- [Reverse engineering](docs/REVERSE_ENGINEERING.md) · [Plan](docs/PLAN.md) · [Architecture](docs/ARCHITECTURE.md) · [ADRs](docs/adr) · [TODO](docs/TODO.md)
 
 ## Updating the ad-block list
 ```bash

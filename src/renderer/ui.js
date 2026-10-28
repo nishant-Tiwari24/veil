@@ -164,6 +164,7 @@ function render() {
   // error page
   $('errorview').hidden = !active?.error
   if (active?.error) $('errortext').textContent = active.error
+  $('httpbtn').hidden = !active?.httpFallback
 
   // panel
   document.body.classList.toggle('panel-open', state.panelOpen)
@@ -251,6 +252,7 @@ $('reload').onclick = () => {
   api.invoke(active?.loading ? 'stop' : 'reload')
 }
 $('retry').onclick = () => api.invoke('reload')
+$('httpbtn').onclick = () => api.invoke('allowHttp')
 $('addressform').onsubmit = e => {
   e.preventDefault()
   editingAddress = false

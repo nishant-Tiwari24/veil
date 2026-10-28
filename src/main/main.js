@@ -28,8 +28,27 @@ const SEARCH = 'https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad
 
 // ADR 0006: one uniform user agent — a common Chrome on Windows,
 // matching our real Chromium major version so it isn't trivially inconsistent.
+// Per-OS bucket like Tor Browser: the real OS family, generic version (ADR 0010).
 const CHROME_MAJOR = process.versions.chrome.split('.')[0]
-const USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`
+const OS_BUCKET = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux'
+const UA_OS = {
+  mac: ['Macintosh; Intel Mac OS X 10_15_7', '"macOS"'],
+  windows: ['Windows NT 10.0; Win64; x64', '"Windows"'],
+  linux: ['X11; Linux x86_64', '"Linux"'],
+}[OS_BUCKET]
+const USER_AGENT = `Mozilla/5.0 (${UA_OS[0]}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`
+
+// tor's ExtendedErrors SOCKS replies (Tor Browser turns these into specific error pages)
+const ONION_ERRORS = {
+  0xF0: 'Onion site not found. It may be offline, or the address is wrong.',
+  0xF1: 'Onion site is unreachable: its descriptor is invalid.',
+  0xF2: 'Onion site disconnected: introduction failed. It may be offline or overloaded.',
+  0xF3: 'Onion site disconnected: the rendezvous failed. Try a new circuit (⌘⇧L).',
+  0xF4: 'This onion site is invite-only. Join it with an invite in the Community Hub.',
+  0xF5: 'Your invite key for this onion site was rejected.',
+  0xF6: 'Invalid onion address. Check it for typos.',
+  0xF7: 'Onion site timed out. It may be offline or overloaded.',
+}
 
 // ADR 0004: leak prevention at the engine level.
 const sw = app.commandLine
@@ -64,6 +83,8 @@ let closedTabs = []
 let bookmarks
 let toast = null
 const adblock = new AdBlocker()
+const httpAllowed = new Set() // hosts the user let load over plain HTTP (this session only)
+const socksErrors = new Map() // site -> { code, at } from tor's ExtendedErrors
 let activeId = null
 let nextTabId = 1
 const sessions = new Map() // site -> Promise<Session>
@@ -121,6 +142,14 @@ function hardenSession(ses, site) {
         sendState()
       }
     }
+    // Pages served from an .onion never reveal its address to other sites
+    // (Tor Browser: network.http.referer.hideOnionSource). Forcing the
+    // document's Referrer-Policy lets Chromium itself enforce it.
+    if (/^(mainFrame|subFrame)$/.test(d.resourceType) && d.responseHeaders && new URL(d.url).hostname.endsWith('.onion')) {
+      const headers = Object.fromEntries(Object.entries(d.responseHeaders).filter(([k]) => k.toLowerCase() !== 'referrer-policy'))
+      headers['Referrer-Policy'] = ['same-origin']
+      return cb({ responseHeaders: headers })
+    }
     cb({})
   })
 
@@ -128,6 +157,15 @@ function hardenSession(ses, site) {
   ses.webRequest.onBeforeRequest((details, cb) => {
     const ok = tor.ready && /^(https?|wss?|data|blob):/.test(details.url)
     if (!ok) return cb({ cancel: true })
+    // HTTPS-Only mode, like Tor Browser (onions exempt: they're already end-to-end encrypted)
+    if (details.resourceType === 'mainFrame' && details.url.startsWith('http://')) {
+      const host = new URL(details.url).hostname
+      if (!host.endsWith('.onion') && !httpAllowed.has(host)) {
+        const tab = tabByWebContentsId(details.webContentsId)
+        if (tab) tab.upgradedFrom = details.url
+        return cb({ redirectURL: 'https://' + details.url.slice('http://'.length) })
+      }
+    }
     // Ads & trackers (ADR 0009)
     const verdict = /^(https?|wss?):/.test(details.url) && adblock.check(details, site)
     if (verdict) {
@@ -141,7 +179,18 @@ function hardenSession(ses, site) {
     const h = details.requestHeaders
     h['Accept-Language'] = 'en-US,en;q=0.9'
     for (const k of Object.keys(h)) {
-      if (k.toLowerCase() === 'sec-ch-ua-platform') h[k] = '"Windows"'
+      const key = k.toLowerCase()
+      if (key === 'sec-ch-ua-platform') h[k] = UA_OS[1]
+      // Referer, like Tor Browser: never reveal an .onion to another site,
+      // and send only the origin (no path) across sites.
+      if (key === 'referer') {
+        try {
+          const from = new URL(h[k])
+          const to = new URL(details.url)
+          if (from.hostname.endsWith('.onion') && siteFor(from.href) !== siteFor(to.href)) delete h[k]
+          else if (from.origin !== to.origin) h[k] = from.origin + '/'
+        } catch { delete h[k] }
+      }
     }
     cb({ requestHeaders: h })
   })
@@ -213,17 +262,27 @@ async function loadInTab(tab, url) {
   if (!site) return
   tab.error = null
   tab.url = url
-  if (site !== tab.site || !tab.view || tab.level !== level) {
+  const js = jsAllowed(url, site)
+  if (site !== tab.site || !tab.view || tab.level !== level || tab.js !== js) {
     // Different first party: brand-new view in that site's partition (ADR 0005).
     const ses = await sessionFor(site)
     if (!tabs.has(tab.id)) return
-    replaceView(tab, site, ses)
+    replaceView(tab, site, ses, js)
   }
   tab.view.webContents.loadURL(url).catch(() => {})
   sendState()
 }
 
-function replaceView(tab, site, ses) {
+// Safest: no JavaScript. Safer: no JavaScript on plain-HTTP pages (NoScript's
+// rule in Tor Browser); onions count as secure.
+function jsAllowed(url, site) {
+  if (site === 'veil') return true
+  if (level === 'safest') return false
+  if (level === 'safer') return !/^http:/.test(url) || site.endsWith('.onion')
+  return true
+}
+
+function replaceView(tab, site, ses, js = true) {
   const internal = site === 'veil'
   if (tab.view) {
     win.contentView.removeChildView(tab.view)
@@ -237,7 +296,7 @@ function replaceView(tab, site, ses) {
       nodeIntegration: false,
       contextIsolation: false, // preload must patch the page's own globals before page scripts run
       nodeIntegrationInSubFrames: true, // ...including inside iframes (still no Node: sandboxed)
-      javascript: internal || level !== 'safest',
+      javascript: js,
       webgl: internal || level === 'standard',
       spellcheck: false,
       navigateOnDragDrop: false,
@@ -248,6 +307,7 @@ function replaceView(tab, site, ses) {
   tab.view = view
   tab.site = site
   tab.level = level
+  tab.js = js
 
   const wc = view.webContents
   wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
@@ -282,6 +342,7 @@ function replaceView(tab, site, ses) {
     if ((e.isMainFrame ?? isMain) && !(e.isSameDocument ?? inPlace)) { tab.onionLocation = null; tab.favicon = null; tab.blocked = 0 }
   })
   wc.on('did-navigate', (e, url) => {
+    tab.upgradedFrom = null
     if (!/^https?:/.test(url)) return
     history = [{ url, title: wc.getTitle() || url, time: Date.now() }, ...history.filter(h => h.url !== url)].slice(0, 300)
   })
@@ -312,7 +373,15 @@ function replaceView(tab, site, ses) {
   wc.on('did-navigate-in-page', update)
   wc.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3) return // -3 = aborted (we redirected it)
-    tab.error = tor.ready ? `${desc} (${code})` : 'Blocked: not connected to Tor yet'
+    const se = socksErrors.get(tab.site)
+    tab.httpFallback = null
+    if (!tor.ready) tab.error = 'Blocked: not connected to Tor yet'
+    else if (se && Date.now() - se.at < 60000 && ONION_ERRORS[se.code]) tab.error = ONION_ERRORS[se.code]
+    else if (tab.upgradedFrom && url.startsWith('https://')) {
+      tab.error = "This site doesn't offer a secure connection (HTTPS). Veil upgrades every site to HTTPS, like Tor Browser's HTTPS-Only mode."
+      tab.httpFallback = tab.upgradedFrom
+    } else tab.error = `${desc} (${code})`
+    tab.upgradedFrom = null
     layout()
     sendState()
   })
@@ -434,7 +503,7 @@ function sendState() {
   if (!uiView || uiView.webContents.isDestroyed()) return
   uiView.webContents.send('veil:state', {
     tabs: [...tabs.values()].map(t => ({
-      id: t.id, title: t.title, url: t.url, site: t.site, loading: t.loading, error: t.error,
+      id: t.id, title: t.title, url: t.url, site: t.site, loading: t.loading, error: t.error, httpFallback: !!t.httpFallback,
       favicon: t.favicon, zoom: Math.round(Math.pow(1.2, t.zoom) * 100), onionLocation: t.onionLocation,
       find: t.find, bookmarked: !!bookmarks?.has(t.url),
       blocked: t.blocked, adblockOn: t.site !== 'veil' && adblock.active(t.site),
@@ -563,11 +632,17 @@ function fromInternalPage(e) {
 
 ipcMain.on('veil:page-config', e => {
   const tab = tabFor(e.sender)
-  e.returnValue = { seed: tab ? siteSeed(tab.site) : 0, level: tab?.level || level }
+  e.returnValue = { seed: tab ? siteSeed(tab.site) : 0, level: tab?.level || level, os: OS_BUCKET }
 })
 
 const uiCommands = {
   newTab: url => { createTab(normalizeInput(url) || HOME) },
+  allowHttp: () => {
+    const t = activeTab()
+    if (!t?.httpFallback) return
+    httpAllowed.add(new URL(t.httpFallback).hostname)
+    loadInTab(t, t.httpFallback)
+  },
   closeTab: id => closeTab(id),
   activate: id => { if (tabs.has(id)) { activeId = id; layout(); sendState() } },
   navigate: input => {
@@ -792,7 +867,11 @@ app.whenReady().then(async () => {
   buildMenu()
   createWindow()
 
-  relay = new IsolationRelay({ torPort: 0, isReady: () => tor.ready })
+  relay = new IsolationRelay({
+    torPort: 0,
+    isReady: () => tor.ready,
+    onError: (site, code) => socksErrors.set(site, { code, at: Date.now() }),
+  })
   community = new Community({ getControl: () => tor.control })
   tor.on('status', sendState)
   await tor.start()
@@ -814,6 +893,19 @@ app.whenReady().then(async () => {
     }).catch(err => console.error('DEMO ERROR', err))
   }
 
+  // VEIL_FP=<html file>: run that page's script in a real web tab, print what it measured.
+  if (process.env.VEIL_FP) {
+    const html = fs.readFileSync(process.env.VEIL_FP, 'utf8')
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
+      .replace(/document\.getElementById\('t'\)[\s\S]*$/, 'JSON.stringify(Object.fromEntries(rows))')
+    const until = async f => { while (!(await f())) await new Promise(r => setTimeout(r, 500)) }
+    await until(() => tor.ready)
+    const tab = createTab('https://check.torproject.org/')
+    await until(() => tab.view && !tab.loading && tab.title !== 'New Tab')
+    console.log('FP ' + await tab.view.webContents.executeJavaScript(script))
+    community.stop(); tor.stop(); app.exit(0)
+  }
+
   if (process.env.VEIL_SELFTEST) {
     const { runSelfTest } = require('./selftest')
     const pageProbe = tab => tab.view.webContents.executeJavaScript(`({
@@ -821,11 +913,16 @@ app.whenReady().then(async () => {
       offset: new Date().getTimezoneOffset(),
       rtc: typeof RTCPeerConnection,
       platform: navigator.platform,
+      uaMac: /Macintosh/.test(navigator.userAgent),
+      connection: 'connection' in navigator,
+      serviceWorker: 'serviceWorker' in navigator,
+      webgl2: !!document.createElement('canvas').getContext('webgl2'),
+      timer: (() => { let a = performance.now(), b; do { b = performance.now() } while (b === a); return b - a })(),
       screen: screen.width + 'x' + screen.height,
       inner: innerWidth + 'x' + innerHeight,
     })`)
     const browser = {
-      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView, adblock,
+      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView, adblock, sessionFor,
     }
     runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite, browser })
       .then(failed => failed ? 1 : 0)
