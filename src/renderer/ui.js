@@ -119,6 +119,13 @@ function render() {
   $('starbtn').classList.toggle('on', !!active?.bookmarked)
   $('staricon').setAttribute('href', active?.bookmarked ? '#i-star-on' : '#i-star')
   $('onionbtn').hidden = !active?.onionLocation
+  const ab = $('adblockbtn')
+  ab.hidden = !bookmarkable || !state.adblockEnabled
+  ab.classList.toggle('off', !active?.adblockOn)
+  $('adblockcount').textContent = active?.adblockOn ? String(active.blocked || 0) : 'off'
+  ab.title = active?.adblockOn
+    ? `${active.blocked || 0} ads & trackers blocked on this page. Click to allow ads on ${site} (this session).`
+    : `Ads allowed on ${site}. Click to block again.`
   $('zoombadge').hidden = !active || active.zoom === 100
   $('zoombadge').textContent = `${active?.zoom}%`
   const key = JSON.stringify(state.suggestions || [])
@@ -231,6 +238,7 @@ $('findprev').onclick = () => findStep(false)
 $('findclose').onclick = () => { $('findinput').value = ''; api.invoke('findOpen', false) }
 
 $('starbtn').onclick = () => api.invoke('bookmark')
+$('adblockbtn').onclick = () => api.invoke('toggleAdblockSite')
 $('onionbtn').onclick = () => api.invoke('openOnion')
 $('zoombadge').onclick = () => api.invoke('zoom', 0)
 $('tabrow').ondblclick = e => { if (e.target.id === 'tabrow' || e.target.id === 'tabs' || e.target.classList.contains('spacer')) api.invoke('newTab') }
