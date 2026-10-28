@@ -153,3 +153,59 @@ body.fullscreen #stage { inset: 0; }
 .explain { margin-top: 16px; padding-top: 10px; border-top: 1px solid #dcdde0; color: var(--dim); font-size: 11px; }
 .explain p { margin: 0 0 4px; }
 .explain b { color: #000; }
+
+/* ---- Dark theme: same Chrome 1 shapes, horror palette (near-black, blood red) ---- */
+:root {
+  --frame-top: #121012; --frame-bot: #070607;
+  --bar-top: #1a1618; --bar-bot: #0f0c0d;
+  --edge: #3a1416;
+  --btn-top: #262022; --btn-bot: #141012; --btn-line: #4a2225;
+  --text: #e8dcdc; --dim: #9c8a8b; --faint: #5e5052;
+  --red: #d8121b; --red-dark: #7a070c;
+  --mono: "Courier New", Courier, monospace;
+}
+html, body { background: #050405; }
+.tab { color: #9c8a8b; }
+.tab::before { background: #3a1416; }
+.tab::after { background: linear-gradient(#1c1719, #110d0e); }
+.tab.active { color: #f3e6e6; }
+.tab.active::after { background: linear-gradient(#2a1a1c, var(--bar-top)); }
+.tab:not(.active):hover::after { background: linear-gradient(#251c1e, #171213); }
+.throbber { border-color: #2a1f21; border-top-color: var(--red); }
+#newtab { background: linear-gradient(#262022, #141012); color: var(--dim); }
+#newtab:hover { background: linear-gradient(#3a2225, #1c1214); color: #fff; }
+#torstatus { font-family: var(--mono); letter-spacing: .04em; }
+#torstatus .dot { background: #1a1416; }
+#torstatus.ready { color: #ff4d55; text-shadow: 0 0 6px #d8121b88; }
+#torstatus.ready .dot { box-shadow: 0 0 8px var(--red); animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; box-shadow: 0 0 2px var(--red); } }
+.btn { color: #d6c8c8; }
+.btn:hover:not(:disabled) { background: linear-gradient(#33292b, #1a1416); border-color: #8a1a20; }
+.btn:active:not(:disabled), .btn.on { background: linear-gradient(#0c0a0b, #1d1719); box-shadow: inset 0 1px 3px #000c; }
+.btn:disabled { color: #4a3e40; border-color: #2a2022; }
+select.btn option { background: #141012; }
+#panicbtn { background: linear-gradient(#b0101a, #6a050a); color: #fff; box-shadow: 0 0 8px #d8121b55; }
+#panicbtn:hover { background: linear-gradient(#e0141f, #8a070d); }
+#addressform { background: #0a0809; border-color: #4a2225; }
+#addressform:focus-within { border-color: var(--red); box-shadow: 0 0 6px #d8121b55; }
+#address { font-family: var(--mono); color: #f0e4e4; }
+#starbtn:hover { color: #fff; }
+#adblockbtn, #zoombadge { background: #141012; border-color: #4a2225; }
+#findbar { background: linear-gradient(#1a1618, #0f0c0d); }
+#findinput { background: #0a0809; border-color: #4a2225; }
+#findinput.nomatch { background: #3a0a0d; }
+#toast { background: #2a0a0d; border: 1px solid var(--red-dark); }
+#progressbar { box-shadow: 0 0 6px var(--red); }
+#stage { background: #050405; }
+#errorview { background: radial-gradient(ellipse at 30% 20%, #1c0709, #050405 70%); }
+.errorcard h1 { color: #ff4d55; font-family: var(--mono); letter-spacing: .02em; text-shadow: 0 0 10px #d8121b66; }
+#panel { background: #0b090a; }
+.panelhead { background: linear-gradient(#1d1719, #0f0c0d); color: #f0e4e4; }
+#hops { background: #110e0f; border-color: #3a1416; }
+#hops li { border-bottom-color: #241a1c; }
+#hops li::before { box-shadow: 0 0 6px var(--red); }
+#hops li.you::before { background: #5e5052; box-shadow: none; }
+#hops li.dest::before { background: #f0e4e4; box-shadow: none; }
+#hops .name { color: #f3e6e6; }
+.explain { border-top-color: #241a1c; }
+.explain b { color: #ff4d55; }
