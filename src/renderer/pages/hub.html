@@ -53,6 +53,43 @@
   .radios { display: grid; gap: 6px; margin-bottom: 8px; }
   .links { margin-top: 24px; text-align: center; font-size: 12px; }
   .links a { color: #1a0dab; cursor: pointer; text-decoration: underline; }
+
+  /* ---- Dark theme (matches ui.css) ---- */
+  :root { --text:#e8dcdc; --dim:#9c8a8b; --faint:#5e5052; --line:#3a1416; --edge:#3a1416; --red:#d8121b; --red-dark:#7a070c;
+          --red-2:#8f0d14; --red-3:#ff6a70; }
+  body { background: radial-gradient(ellipse at 50% -10%, #240a0d, #070506 60%) fixed, #070506; color: var(--text); }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 99;
+                background: repeating-linear-gradient(#0000 0 2px, #0000001f 2px 3px), radial-gradient(ellipse at center, #0000 60%, #0008); }
+  h1, h2, .logo { color: #f3e6e6; }
+  h1 { font-family: var(--mono); letter-spacing: .03em; text-shadow: 0 0 12px #d8121b55; }
+  h2, th { background: linear-gradient(#1d1719, #110d0e) !important; border-color: var(--line) !important; color: #f0e4e4; }
+  section, table, .stage, .caption, .checks { background: #0d0a0b !important; border-color: var(--line) !important; }
+  button, select { color: #d6c8c8; border-color: #4a2225; background: linear-gradient(#262022, #141012); }
+  button:hover { border-color: var(--red); background: linear-gradient(#33292b, #1a1416); }
+  button.on, button:active { background: linear-gradient(#0c0a0b, #1d1719); }
+  input, textarea { background: #0a0809; color: #f0e4e4; border-color: #4a2225; font-family: var(--mono); }
+  input:focus, textarea:focus { border-color: var(--red); box-shadow: 0 0 6px #d8121b55; }
+  td, .list li, .check { border-top-color: #241a1c !important; }
+  tr:hover td, .list li:hover { background: #1a0d0f !important; }
+  .check:nth-child(even) { background: #110d0e; }
+  .list b, a, .links a { color: #ff4d55 !important; }
+  .hostcard, .invite { background: #110d0e; }
+  .pass .icon, .ring.core { color: #f0e4e4; }
+  .dot { background: #0d0a0b; }
+  .node.relay .dot { box-shadow: 0 0 14px #d8121b66; }
+  .ring.core { background: #f0e4e4; }
+  .packet.reply .ring.core { background: #070506; border-color: #f0e4e4; }
+  .wire { background: repeating-linear-gradient(90deg, #5a1a1e 0 8px, transparent 8px 14px); }
+  .live .stat { border-bottom-color: #2a1f21; }
+  @font-face { font-family: "Creepster"; src: url("/fonts/Creepster-Regular.ttf") format("truetype"); }
+  .hero { margin-top: 14px; }
+  .logo { font: 150px/1 "Creepster", var(--mono); letter-spacing: .06em; text-transform: uppercase;
+          text-shadow: 0 0 28px #d8121b99, 0 6px 0 #000, 0 0 2px #fff4; animation: flicker 6s infinite; }
+  .logo span { color: var(--red); text-shadow: 0 0 22px var(--red); }
+  @keyframes flicker { 0%, 92%, 100% { opacity: 1 } 93% { opacity: .35 } 94% { opacity: 1 } 96% { opacity: .55 } 97% { opacity: 1 } }
+  .tag { font-family: var(--mono); letter-spacing: .05em; }
+  .status.ready { color: #ff4d55; }
+  .status.ready .dot { box-shadow: 0 0 8px var(--red); }
 </style>
 </head>
 <body>

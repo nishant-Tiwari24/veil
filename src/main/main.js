@@ -19,6 +19,7 @@ const SRC = path.join(__dirname, '..')
 const UI_PRELOAD = path.join(SRC, 'preload', 'ui.js')
 const PAGE_PRELOAD = path.join(SRC, 'preload', 'page.js')
 const PAGES_DIR = path.join(SRC, 'renderer', 'pages')
+const FONTS_DIR = path.join(SRC, '..', 'assets', 'fonts')
 
 const TOOLBAR_HEIGHT = 76
 const FIND_HEIGHT = 34
@@ -249,7 +250,14 @@ function internalSession() {
   if (_internal) return _internal
   _internal = session.fromPartition('veil-internal', { cache: false })
   _internal.protocol.handle('veil', req => {
-    const { hostname } = new URL(req.url)
+    const { hostname, pathname } = new URL(req.url)
+    // veil://<page>/fonts/<file>.ttf: fonts bundled for Veil's own pages
+    const font = pathname.match(/^\/fonts\/([\w-]+\.ttf)$/)
+    if (font) {
+      const f = path.join(FONTS_DIR, font[1])
+      if (!fs.existsSync(f)) return new Response('Not found', { status: 404 })
+      return new Response(fs.readFileSync(f), { headers: { 'content-type': 'font/ttf' } })
+    }
     const file = path.join(PAGES_DIR, `${hostname.replace(/[^a-z]/g, '')}.html`)
     if (!fs.existsSync(file)) return new Response('Not found', { status: 404 })
     return new Response(fs.readFileSync(file), { headers: { 'content-type': 'text/html; charset=utf-8' } })
