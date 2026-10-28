@@ -1,8 +1,34 @@
-# 🧅 Veil
+<p align="center">
+  <img src="docs/images/logo.png" alt="Veil" width="720">
+</p>
 
-An anonymous browser built on Tor onion routing. Every request goes through
-the Tor network, every site gets its own circuit and storage, nothing is kept,
-and communities can host invite-only onion sites with one click.
+<p align="center">
+  <b>An anonymous browser inspired by Tor Browser, built by reverse engineering it.</b><br>
+  Every request goes through the real Tor network, every site gets its own circuit, and nothing is kept.
+</p>
+
+<p align="center">
+  <a href="https://github.com/nishant-Tiwari24/veil/actions/workflows/ci.yml"><img src="https://github.com/nishant-Tiwari24/veil/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/nishant-Tiwari24/veil/releases/latest"><img src="https://img.shields.io/github/v/release/nishant-Tiwari24/veil?color=d8121b&label=release" alt="Release"></a>
+  <a href="https://github.com/nishant-Tiwari24/veil/releases"><img src="https://img.shields.io/github/downloads/nishant-Tiwari24/veil/total?color=d8121b" alt="Downloads"></a>
+  <a href="https://github.com/nishant-Tiwari24/veil/stargazers"><img src="https://img.shields.io/github/stars/nishant-Tiwari24/veil?style=flat&color=d8121b" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/nishant-Tiwari24/veil?color=555" alt="MIT licence"></a>
+  <img src="https://img.shields.io/badge/built%20on-Tor-7d4698" alt="Built on Tor">
+  <img src="https://img.shields.io/badge/Electron-45-47848f?logo=electron&logoColor=white" alt="Electron 45">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-333" alt="macOS | Linux">
+</p>
+
+<p align="center">
+  <a href="#download">Download</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#how-we-reverse-engineered-tor-browser">Reverse engineering</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/browsing.png" alt="Veil showing the live Tor circuit for a site" width="900">
+</p>
 
 > ⚠️ **Disclaimer — read this first**
 >
@@ -20,16 +46,41 @@ and communities can host invite-only onion sites with one click.
 > - Veil is not affiliated with or endorsed by The Tor Project. "Tor" is a
 >   trademark of The Tor Project, Inc.
 
-## Run it
+## Download
+Grab the latest build from **[Releases](https://github.com/nishant-Tiwari24/veil/releases/latest)**:
+
+| Platform | File | Notes |
+|---|---|---|
+| macOS (Apple Silicon) | `Veil-<version>-mac-arm64.dmg` | Unsigned: right-click → **Open** the first time |
+| macOS (Intel) | `Veil-<version>-mac-x64.dmg` | Same as above |
+| Linux | `Veil-<version>-linux-x86_64.AppImage` | `chmod +x`, then run |
+
+Veil drives the real tor daemon, so install it first: `brew install tor` (macOS) or `sudo apt install tor` (Linux).
+Release builds include lyrebird for bridges, taken from the signed Tor Browser release.
+
+## Run from source
 ```bash
 brew install tor          # Veil drives the real tor daemon
 npm install
+npm run bridges:setup     # optional: copies lyrebird from Tor Browser for bridges
 npm start
 ```
-Prove the anonymity guarantees automatically:
+Prove the anonymity guarantees automatically (37 checks against the live Tor network):
 ```bash
-VEIL_SELFTEST=1 npm start
+npm run selftest
 ```
+
+## Screenshots
+<table>
+  <tr>
+    <td><img src="docs/images/hub.png" alt="Community hub"><br><sub><b>Home:</b> signed community directory, invite-only sites, one-click onion hosting</sub></td>
+    <td><img src="docs/images/routing.png" alt="Onion routing visualiser"><br><sub><b>See onion routing:</b> your real circuit, one layer peeled per relay</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/onion.png" alt="BBC News onion site"><br><sub><b>.onion sites:</b> BBC News over a Tor onion service</sub></td>
+    <td><img src="docs/images/leaktest.png" alt="Built-in leak test"><br><sub><b>Leak test:</b> what a website can learn about you</sub></td>
+  </tr>
+</table>
 
 ## Features
 
@@ -71,8 +122,8 @@ Some websites block or challenge Tor users (CAPTCHAs, banking, some Google
 services). That is the site refusing Tor, not a Veil bug. Use ⌘⇧L (new circuit)
 to try a different exit relay.
 
-If your country or network blocks Tor itself, you would need Tor bridges. Veil
-doesn't support bridges yet.
+If your country or network blocks Tor itself, connect through a bridge (obfs4,
+Snowflake or meek) from the Connection section on the home page.
 
 ## How we reverse engineered Tor Browser
 We downloaded and verified Tor Browser 15.0.26, unpacked its app bundle and
@@ -95,3 +146,15 @@ npm run community:keygen   # once, creates the signing key (keep community.key s
 # edit community/directory.json
 npm run community:sign     # re-sign after every change
 ```
+
+## Star history
+<a href="https://star-history.com/#nishant-Tiwari24/veil&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nishant-Tiwari24/veil&type=Date&theme=dark">
+    <img alt="Star history chart" src="https://api.star-history.com/svg?repos=nishant-Tiwari24/veil&type=Date">
+  </picture>
+</a>
+
+## Licence
+[MIT](LICENSE). Bundled: [Creepster](assets/fonts/Creepster-OFL.txt) font (SIL OFL); release builds also ship
+lyrebird from the Tor Project (BSD, licence included next to the binary).

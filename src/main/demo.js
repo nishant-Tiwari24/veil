@@ -13,6 +13,7 @@ async function waitLoaded(tab, ms) {
 }
 
 async function runDemo({ tor, urls, createTab, uiView, outDir, activate, setPanel }) {
+  uiView.webContents.setBackgroundThrottling(false) // keep the toolbar painting while the window is behind others
   while (!tor.ready) await sleep(500)
   fs.mkdirSync(outDir, { recursive: true })
   for (const [i, url] of urls.entries()) {
@@ -30,6 +31,8 @@ async function runDemo({ tor, urls, createTab, uiView, outDir, activate, setPane
         await sleep(1000)
       }
     }
+    uiView.webContents.invalidate()
+    await sleep(500)
     await shoot(uiView.webContents, `${name}-ui.png`)
     if (tab.view && !tab.error) await shoot(tab.view.webContents, `${name}-page.png`)
     console.log(`DEMO ${tab.error ? 'ERROR' : 'OK   '} ${url}  ${tab.error || tab.title}`)
