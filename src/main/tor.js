@@ -34,6 +34,21 @@ function freePort() {
   })
 }
 
+// A Veil that was killed (not quit) can't wipe its tor folder; the next start does.
+function sweepStaleDataDirs() {
+  for (const name of fs.readdirSync(os.tmpdir())) {
+    if (!name.startsWith('veil-tor-')) continue
+    const dir = path.join(os.tmpdir(), name)
+    try {
+      const pid = Number(fs.readFileSync(path.join(dir, 'veil.pid'), 'utf8'))
+      try { process.kill(pid, 0); continue } catch {} // owner still running
+    } catch {
+      if (Date.now() - fs.statSync(dir).mtimeMs < 24 * 3600e3) continue // no owner file: leave recent ones alone
+    }
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+}
+
 class TorManager extends EventEmitter {
   constructor() {
     super()
@@ -54,7 +69,9 @@ class TorManager extends EventEmitter {
     this.control = null
     this.bridges = bridges
     this.summary = bridges.length ? 'Starting tor with bridges' : 'Starting tor'
+    sweepStaleDataDirs()
     this.dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'veil-tor-'))
+    fs.writeFileSync(path.join(this.dataDir, 'veil.pid'), String(process.pid))
     this.socksPort = await freePort()
     this.controlPort = await freePort()
 

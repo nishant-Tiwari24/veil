@@ -1079,3 +1079,6 @@ app.on('before-quit', () => {
 })
 
 app.on('window-all-closed', () => app.quit())
+
+// Killed from a terminal or by the OS: still wipe tor's folder on the way out.
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit())
