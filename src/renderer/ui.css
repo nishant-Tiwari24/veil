@@ -72,6 +72,7 @@ select { height: 32px; padding: 0 8px; border-radius: 8px; background: var(--bg-
 #stage { position: fixed; inset: var(--toolbar) 0 0 0;
   background: repeating-linear-gradient(45deg, #0b0d12 0 10px, #0d0f14 10px 20px); }
 body.panel-open #stage { right: var(--panel); }
+[hidden] { display: none !important; }
 #errorview { position: absolute; inset: 0; display: grid; place-items: center; background: var(--bg); }
 .errorcard { max-width: 440px; text-align: center; padding: 24px; }
 .erroricon { font-size: 44px; filter: grayscale(.4); }
@@ -80,7 +81,8 @@ body.panel-open #stage { right: var(--panel); }
 
 /* circuit panel */
 #panel { position: fixed; top: var(--toolbar); right: 0; bottom: 0; width: var(--panel); padding: 18px;
-  background: var(--bg-2); border-left: 1px solid var(--line); overflow-y: auto; }
+  background: var(--bg-2); border-left: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; }
+#panelsite, #hops .name, #hops .meta { overflow-wrap: anywhere; }
 .panelhead { display: flex; align-items: center; justify-content: space-between; }
 .panelhead h2 { margin: 0; font-size: 16px; }
 .muted { color: var(--muted); }

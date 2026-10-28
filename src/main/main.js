@@ -512,6 +512,19 @@ app.whenReady().then(async () => {
 
   createTab(HOME)
 
+  if (process.env.VEIL_DEMO) {
+    const { runDemo } = require('./demo')
+    runDemo({
+      tor,
+      urls: process.env.VEIL_DEMO.split(',').map(s => s.trim()).filter(Boolean),
+      createTab,
+      uiView,
+      outDir: process.env.VEIL_SHOTS || path.join(process.cwd(), 'shots'),
+      activate: id => uiCommands.activate(id),
+      setPanel: open => uiCommands.panel(open),
+    }).catch(err => console.error('DEMO ERROR', err))
+  }
+
   if (process.env.VEIL_SELFTEST) {
     const { runSelfTest } = require('./selftest')
     const pageProbe = tab => tab.view.webContents.executeJavaScript(`({
@@ -522,9 +535,10 @@ app.whenReady().then(async () => {
       screen: screen.width + 'x' + screen.height,
       inner: innerWidth + 'x' + innerHeight,
     })`)
-    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe })
-      .then(failed => app.exit(failed ? 1 : 0))
-      .catch(err => { console.error('SELFTEST ERROR', err); app.exit(2) })
+    runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite })
+      .then(failed => failed ? 1 : 0)
+      .catch(err => { console.error('SELFTEST ERROR', err); return 2 })
+      .then(code => { community.stop(); tor.stop(); app.exit(code) }) // app.exit skips before-quit
   }
 })
 

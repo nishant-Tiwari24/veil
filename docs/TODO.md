@@ -38,11 +38,11 @@
 - [x] Signed directory + signing script
 - [x] Hub page listing community sites
 - [x] Join via invite (client auth)
-- [~] One-click hosting (+ invite-only option) — publishes; reachability being debugged
+- [x] One-click hosting (+ invite-only option)
 
 ## Phase 7 — Verify
 - [x] check.torproject.org says "using Tor"
 - [x] DNS leak test clean
 - [x] WebRTC leak test clean
 - [x] Two sites → two different exit IPs
-- [ ] Host an onion, open it from a second Veil profile
+- [x] Host an invite-only onion, open it from a second tor instance via invite
