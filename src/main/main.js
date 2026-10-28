@@ -8,7 +8,7 @@ const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const { getDomain } = require('tldts')
-const { TorManager } = require('./tor')
+const { TorManager, LYREBIRD } = require('./tor')
 const { IsolationRelay } = require('./relay')
 const { Community, COMMUNITY_DIR } = require('./community')
 const { Bookmarks } = require('./bookmarks')
@@ -843,7 +843,7 @@ const internalCommands = {
   stopHosting: (sender, id) => community.stopHosting(id),
   hosted: () => community.listHosted(),
   networkTest: () => networkTest(),
-  connection: () => ({ ...settings, recommended: 'snowflake', bridgesAvailable: fs.existsSync(path.join(__dirname, '..', '..', 'bin', 'lyrebird')) }),
+  connection: () => ({ ...settings, recommended: 'snowflake', bridgesAvailable: fs.existsSync(LYREBIRD) }),
   setConnection: async (sender, mode, customText) => {
     if (!BRIDGE_MODES.includes(mode)) throw new Error('Unknown connection type')
     const custom = String(customText || '').split('\n').map(l => l.trim().replace(/^Bridge\s+/i, '')).filter(Boolean)

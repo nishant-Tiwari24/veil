@@ -1,26 +1,81 @@
 {
   "name": "veil",
-  "version": "0.1.0",
-  "description": "Anonymous browser built on Tor onion routing",
+  "version": "1.0.0",
+  "description": "Anonymous browser inspired by Tor Browser, built on Tor onion routing",
   "main": "src/main/main.js",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
     "start": "electron .",
     "community:keygen": "node scripts/community-keygen.js",
     "community:sign": "node scripts/community-sign.js",
     "adblock:update": "node scripts/adblock-update.js",
-    "bridges:setup": "node scripts/bridges-setup.js"
+    "bridges:setup": "node scripts/bridges-setup.js",
+    "check": "node scripts/check.js",
+    "selftest": "VEIL_SELFTEST=1 electron .",
+    "dist": "electron-builder --publish never"
   },
-  "author": "",
+  "author": "Nishant Tiwari",
   "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^45.0.0"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   },
   "dependencies": {
     "@ghostery/adblocker": "^2.20.1",
     "tldts": "^7.4.19"
+  },
+  "homepage": "https://github.com/nishant-Tiwari24/veil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nishant-Tiwari24/veil.git"
+  },
+  "build": {
+    "appId": "io.github.nishanttiwari24.veil",
+    "productName": "Veil",
+    "artifactName": "Veil-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "src/**",
+      "assets/**",
+      "community/directory.json",
+      "community/directory.sig",
+      "community/community.pub.pem",
+      "community/sample-site/**",
+      "package.json",
+      "!**/*.key"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "linux": {
+      "category": "Network",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "lyrebird",
+          "lyrebird-LICENSE.txt"
+        ]
+      }
+    ]
   }
 }
