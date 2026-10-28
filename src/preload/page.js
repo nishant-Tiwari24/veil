@@ -52,7 +52,8 @@ getter(window, 'outerWidth', () => window.innerWidth)
 getter(window, 'outerHeight', () => window.innerHeight)
 getter(window, 'screenX', () => 0)
 getter(window, 'screenY', () => 0)
-getter(window, 'devicePixelRatio', () => 1)
+// devicePixelRatio is left real, like Tor Browser: CSS resolution queries see
+// the real value anyway, and a lie that disagrees with CSS is itself a fingerprint.
 
 // --- WebRTC, media devices, battery: gone ---
 for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate']) {
@@ -117,6 +118,103 @@ HTMLCanvasElement.prototype.toBlob = function (...args) {
   return origToBlob.apply(noisyCopy(this) || this, args)
 }
 
+// --- Fonts: only a fixed, per-OS list is visible to scripts ---
+// Font fingerprinting tests whether a font name changes how text is drawn.
+// Every way a script can name a font is filtered to the fonts that ship with
+// the OS (Tor Browser's macOS whitelist, font.system.whitelist), the generic
+// families, and web fonts the page itself loads. A probe for any other
+// installed font silently falls back, so it never reveals it.
+const SYSTEM_FONTS = {
+  mac: ['AppleGothic', 'Apple Color Emoji', 'Arial', 'Arial Black', 'Arial Narrow', 'Courier', 'Courier New', 'Geneva', 'Georgia', 'Heiti TC', 'Helvetica', 'Helvetica Neue', 'Hiragino Kaku Gothic ProN', 'Kailasa', 'Lucida Grande', 'Menlo', 'Monaco', 'PingFang HK', 'PingFang SC', 'PingFang TC', 'Songti SC', 'Songti TC', 'Tahoma', 'Thonburi', 'Times', 'Times New Roman', 'Verdana', 'STIX Two Math'],
+  windows: ['Arial', 'Arial Black', 'Calibri', 'Cambria', 'Cambria Math', 'Candara', 'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Georgia', 'Impact', 'Lucida Console', 'Lucida Sans Unicode', 'Microsoft Sans Serif', 'Palatino Linotype', 'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'],
+  linux: ['DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif', 'Liberation Mono', 'Liberation Sans', 'Liberation Serif', 'Noto Sans', 'Noto Serif', 'Noto Color Emoji'],
+}[cfg.os] || []
+const GENERIC_FONTS = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong', '-apple-system', 'blinkmacsystemfont', 'inherit', 'initial', 'unset', 'revert']
+const allowedFonts = new Set([...SYSTEM_FONTS, ...GENERIC_FONTS].map(f => f.toLowerCase()))
+
+function fontAllowed(name) {
+  const n = name.trim().replace(/^['"]|['"]$/g, '').toLowerCase()
+  if (!n || allowedFonts.has(n)) return true
+  try { // web fonts the page declared itself (@font-face or new FontFace)
+    for (const face of document.fonts) if (face.family.replace(/^['"]|['"]$/g, '').toLowerCase() === n) return true
+  } catch {}
+  return false
+}
+function filterFamilies(list) {
+  const kept = String(list).split(',').filter(fontAllowed).map(f => f.trim())
+  return kept.length ? kept.join(', ') : 'serif'
+}
+// "italic bold 16px/1.2 'Some Font', serif" -> keep everything up to the size, filter the rest
+const FONT_SHORTHAND = /^(.*?[\d.]+(?:px|pt|pc|em|rem|ex|ch|%|vw|vh|in|cm|mm|q)?(?:\s*\/\s*[\w.%-]+)?\s+)(.+)$/i
+function filterShorthand(value) {
+  const m = String(value).match(FONT_SHORTHAND)
+  return m ? m[1] + filterFamilies(m[2]) : value
+}
+function filterCss(text) {
+  return String(text)
+    .replace(/(font-family\s*:\s*)([^;]+)/gi, (_, k, v) => k + filterFamilies(v))
+    .replace(/((?:^|;)\s*font\s*:\s*)([^;]+)/gi, (_, k, v) => k + filterShorthand(v))
+}
+function wrapSetter(proto, prop, filter) {
+  const d = proto && Object.getOwnPropertyDescriptor(proto, prop)
+  if (!d?.set) return
+  Object.defineProperty(proto, prop, { ...d, set(v) { d.set.call(this, filter(v)) } })
+}
+const CSD = CSSStyleDeclaration.prototype
+wrapSetter(CSD, 'cssText', filterCss)
+// Chromium resolves style.fontFamily / style.font internally (no prototype
+// accessor to wrap), so element.style hands back a thin proxy that filters
+// font names on the way in. One proxy per declaration keeps el.style === el.style.
+const styleProxies = new WeakMap()
+function proxyStyle(decl) {
+  if (!decl) return decl
+  let p = styleProxies.get(decl)
+  if (!p) {
+    p = new Proxy(decl, {
+      get(t, k) { const v = Reflect.get(t, k, t); return typeof v === 'function' ? v.bind(t) : v },
+      set(t, k, v) {
+        if (k === 'fontFamily' || k === 'font-family') v = filterFamilies(v)
+        else if (k === 'font') v = filterShorthand(v)
+        else if (k === 'cssText') v = filterCss(v)
+        return Reflect.set(t, k, v, t)
+      },
+    })
+    styleProxies.set(decl, p)
+  }
+  return p
+}
+for (const proto of [HTMLElement.prototype, SVGElement.prototype, window.MathMLElement?.prototype]) {
+  const d = proto && Object.getOwnPropertyDescriptor(proto, 'style')
+  if (!d?.get) continue
+  Object.defineProperty(proto, 'style', {
+    ...d,
+    get() { return proxyStyle(d.get.call(this)) },
+    set(v) { d.set.call(this, filterCss(v)) },
+  })
+}
+const origSetProperty = CSD.setProperty
+CSD.setProperty = function (name, value, priority) {
+  const n = String(name).toLowerCase()
+  if (n === 'font-family') value = filterFamilies(value)
+  else if (n === 'font') value = filterShorthand(value)
+  return origSetProperty.call(this, name, value, priority)
+}
+const origSetAttribute = Element.prototype.setAttribute
+Element.prototype.setAttribute = function (name, value) {
+  if (String(name).toLowerCase() === 'style') value = filterCss(value)
+  return origSetAttribute.call(this, name, value)
+}
+wrapSetter(CanvasRenderingContext2D.prototype, 'font', filterShorthand)
+wrapSetter(window.OffscreenCanvasRenderingContext2D?.prototype, 'font', filterShorthand)
+if (window.FontFaceSet) {
+  const origCheck = FontFaceSet.prototype.check
+  FontFaceSet.prototype.check = function (font, text) {
+    const m = String(font).match(FONT_SHORTHAND)
+    if (m && !m[2].split(',').some(fontAllowed)) return false
+    return origCheck.call(this, font, text)
+  }
+}
+
 // --- WebGL2 off, like Tor Browser (webgl.enable-webgl2 = false) ---
 for (const proto of [HTMLCanvasElement.prototype, window.OffscreenCanvas?.prototype]) {
   if (!proto) continue
@@ -146,6 +244,8 @@ if (cfg.level !== 'standard') {
 
 // --- Internal pages (veil://) get a small API; web pages never do ---
 if (location.protocol === 'veil:') {
+  window.__veilErrors = [] // read by the self-test
+  window.addEventListener('error', e => window.__veilErrors.push(e.message))
   const call = (cmd, ...args) => ipcRenderer.invoke('veil:internal', cmd, ...args)
   window.veil = {
     status: () => call('status'),
@@ -162,5 +262,7 @@ if (location.protocol === 'veil:') {
     removeBookmark: url => call('removeBookmark', url),
     history: () => call('history'),
     clearHistory: () => call('clearHistory'),
+    connection: () => call('connection'),
+    setConnection: (mode, custom) => call('setConnection', mode, custom),
   }
 }

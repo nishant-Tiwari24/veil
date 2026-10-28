@@ -38,6 +38,27 @@ const UA_OS = {
 }[OS_BUCKET]
 const USER_AGENT = `Mozilla/5.0 (${UA_OS[0]}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`
 
+// Request headers that describe your device or network (client hints and
+// their legacy forms). Only the low-detail sec-ch-ua, -mobile and -platform stay,
+// because real Chrome always sends those.
+const REVEALING_HEADER = /^(sec-ch-ua-(arch|bitness|full-version|full-version-list|model|platform-version|wow64|form-factors?)|sec-ch-(dpr|device-memory|viewport-width|viewport-height|width|prefers-color-scheme|prefers-reduced-motion|prefers-reduced-transparency|prefers-contrast|forced-colors|save-data|downlink|ect|rtt)|dpr|device-memory|viewport-width|width|downlink|ect|rtt|save-data|x-client-data)$/
+// Response headers that ask the browser to start sending them.
+const CLIENT_HINT_REQUEST = /^(accept-ch|critical-ch)$/
+
+// Everyone reports the same system preferences, enforced in the engine so CSS
+// media queries and matchMedia() agree.
+const EMULATED_MEDIA = [
+  { name: 'prefers-color-scheme', value: 'light' },
+  { name: 'prefers-reduced-motion', value: 'no-preference' },
+  { name: 'prefers-reduced-transparency', value: 'no-preference' },
+  { name: 'prefers-contrast', value: 'no-preference' },
+  { name: 'forced-colors', value: 'none' },
+]
+
+// Built-in bridges from Tor Browser's pt_config.json (REVERSE_ENGINEERING.md)
+const PT_CONFIG = require('../../assets/pt_config.json')
+const BRIDGE_MODES = ['none', 'snowflake', 'obfs4', 'meek', 'custom']
+
 // tor's ExtendedErrors SOCKS replies (Tor Browser turns these into specific error pages)
 const ONION_ERRORS = {
   0xF0: 'Onion site not found. It may be offline, or the address is wrong.',
@@ -83,6 +104,7 @@ let closedTabs = []
 let bookmarks
 let toast = null
 const adblock = new AdBlocker()
+let settings = { bridges: 'none', customBridges: [] } // the only settings Veil saves
 const httpAllowed = new Set() // hosts the user let load over plain HTTP (this session only)
 const socksErrors = new Map() // site -> { code, at } from tor's ExtendedErrors
 let activeId = null
@@ -142,15 +164,19 @@ function hardenSession(ses, site) {
         sendState()
       }
     }
+    if (!d.responseHeaders) return cb({})
+    // Sites can't ask for detailed device/network client hints.
+    let headers = Object.fromEntries(Object.entries(d.responseHeaders).filter(([k]) => !CLIENT_HINT_REQUEST.test(k.toLowerCase())))
+    let changed = Object.keys(headers).length !== Object.keys(d.responseHeaders).length
     // Pages served from an .onion never reveal its address to other sites
     // (Tor Browser: network.http.referer.hideOnionSource). Forcing the
     // document's Referrer-Policy lets Chromium itself enforce it.
-    if (/^(mainFrame|subFrame)$/.test(d.resourceType) && d.responseHeaders && new URL(d.url).hostname.endsWith('.onion')) {
-      const headers = Object.fromEntries(Object.entries(d.responseHeaders).filter(([k]) => k.toLowerCase() !== 'referrer-policy'))
+    if (/^(mainFrame|subFrame)$/.test(d.resourceType) && new URL(d.url).hostname.endsWith('.onion')) {
+      headers = Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== 'referrer-policy'))
       headers['Referrer-Policy'] = ['same-origin']
-      return cb({ responseHeaders: headers })
+      changed = true
     }
-    cb({})
+    cb(changed ? { responseHeaders: headers } : {})
   })
 
   // Kill switch (ADR 0004): only web schemes, and only once tor is ready.
@@ -180,6 +206,7 @@ function hardenSession(ses, site) {
     h['Accept-Language'] = 'en-US,en;q=0.9'
     for (const k of Object.keys(h)) {
       const key = k.toLowerCase()
+      if (REVEALING_HEADER.test(key)) { delete h[k]; continue }
       if (key === 'sec-ch-ua-platform') h[k] = UA_OS[1]
       // Referer, like Tor Browser: never reveal an .onion to another site,
       // and send only the origin (no path) across sites.
@@ -252,6 +279,7 @@ function createTab(url = HOME, { activate = true } = {}) {
   }
   tabs.set(tab.id, tab)
   if (activate || activeId == null) activeId = tab.id
+  if (process.env.VEIL_DEBUG) console.log(`[tabs] created ${tab.id} ${url}, active now ${activeId}`)
   loadInTab(tab, url)
   sendState()
   return tab
@@ -311,6 +339,18 @@ function replaceView(tab, site, ses, js = true) {
 
   const wc = view.webContents
   wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+  if (process.env.VEIL_DEBUG) {
+    wc.on('console-message', e => { if (e.level === 'error' || e.level === 'warning') console.log(`[page ${site}] ${e.message}`) })
+    wc.on('preload-error', (e, file, err) => console.log(`[preload ${site}] ${err.stack || err}`))
+  }
+  if (!internal) {
+    // Engine-level overrides (Chrome DevTools Protocol), so CSS and JavaScript
+    // see the same answers: fixed system preferences now, screen size in layout().
+    try {
+      wc.debugger.attach('1.3')
+      wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA }).catch(() => {})
+    } catch {}
+  }
   wc.setWindowOpenHandler(({ url, disposition }) => {
     if (siteFor(url) && siteFor(url) !== 'veil') createTab(url, { activate: disposition !== 'background-tab' })
     return { action: 'deny' }
@@ -402,6 +442,7 @@ function closeTab(id) {
     tab.view.webContents.close()
   }
   if (activeId === id) activeId = ids[idx + 1] ?? ids[idx - 1] ?? null
+  if (process.env.VEIL_DEBUG) console.log(`[tabs] closed ${id}, active now ${activeId}`)
   if (activeId == null) createTab()
   layout()
   sendState()
@@ -479,7 +520,7 @@ function layout() {
     tab.view.setVisible(visible)
     if (!visible) continue
     let { x, y, width, height } = area
-    if (tab.site !== 'veil' && !fullscreen) {
+    if (tab.site !== 'veil') { // also in full screen: the real screen size never shows
       const lw = width >= 200 ? Math.floor(width / 200) * 200 : width
       const lh = height >= 100 ? Math.floor(height / 100) * 100 : height
       x += Math.floor((width - lw) / 2)
@@ -488,6 +529,14 @@ function layout() {
       height = lh
     }
     tab.view.setBounds({ x, y, width, height })
+    const screenKey = `${width}x${height}`
+    if (tab.site !== 'veil' && tab.screenKey !== screenKey && tab.view.webContents.debugger.isAttached()) {
+      tab.screenKey = screenKey
+      tab.view.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+        width: 0, height: 0, deviceScaleFactor: 0, mobile: false, // 0 = keep the real viewport and pixel ratio
+        screenWidth: width, screenHeight: height, positionX: 0, positionY: 0,
+      }).catch(() => {})
+    }
   }
 }
 
@@ -588,6 +637,38 @@ async function routingInfo(site) {
   return { site, sites, circuit, streams, traffic }
 }
 
+// ---------- connection settings (bridges) ----------
+
+let wasReady = false // flips once per tor start, so blocked tabs reload when it connects
+
+function settingsFile() {
+  return path.join(app.getPath('userData'), 'settings.json')
+}
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))
+    if (BRIDGE_MODES.includes(saved.bridges)) settings = { ...settings, ...saved }
+  } catch {}
+}
+
+function saveSettings() {
+  fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2), { mode: 0o600 })
+}
+
+function bridgeLines() {
+  if (settings.bridges === 'none') return []
+  if (settings.bridges === 'custom') return settings.customBridges
+  return PT_CONFIG.bridges[settings.bridges] || []
+}
+
+async function reconnect() {
+  wasReady = false
+  await tor.restart({ bridges: bridgeLines() })
+  relay.torPort = tor.socksPort
+  sendState()
+}
+
 async function circuitInfo() {
   const tab = activeTab()
   if (!tab || tab.site === 'veil' || !tor.control) return { site: tab?.site || null, circuit: null }
@@ -644,7 +725,10 @@ const uiCommands = {
     loadInTab(t, t.httpFallback)
   },
   closeTab: id => closeTab(id),
-  activate: id => { if (tabs.has(id)) { activeId = id; layout(); sendState() } },
+  activate: id => {
+    if (process.env.VEIL_DEBUG) console.log(`[tabs] activate ${id} (was ${activeId})`)
+    if (tabs.has(id)) { activeId = id; layout(); sendState() }
+  },
   navigate: input => {
     const url = normalizeInput(input)
     const tab = activeTab()
@@ -731,7 +815,7 @@ ipcMain.handle('veil:ui', async (e, cmd, ...args) => {
 })
 
 // Commands that work before tor is connected; the rest need the network.
-const OFFLINE_OK = new Set(['status', 'open', 'directory', 'hosted', 'bookmarks', 'removeBookmark', 'history', 'clearHistory'])
+const OFFLINE_OK = new Set(['status', 'open', 'directory', 'hosted', 'bookmarks', 'removeBookmark', 'history', 'clearHistory', 'connection', 'setConnection'])
 
 const internalCommands = {
   status: () => ({ tor: tor.status(), level }),
@@ -751,6 +835,16 @@ const internalCommands = {
   stopHosting: (sender, id) => community.stopHosting(id),
   hosted: () => community.listHosted(),
   networkTest: () => networkTest(),
+  connection: () => ({ ...settings, recommended: 'snowflake', bridgesAvailable: fs.existsSync(path.join(__dirname, '..', '..', 'bin', 'lyrebird')) }),
+  setConnection: async (sender, mode, customText) => {
+    if (!BRIDGE_MODES.includes(mode)) throw new Error('Unknown connection type')
+    const custom = String(customText || '').split('\n').map(l => l.trim().replace(/^Bridge\s+/i, '')).filter(Boolean)
+    if (mode === 'custom' && !custom.length) throw new Error('Paste at least one bridge line')
+    settings = { bridges: mode, customBridges: mode === 'custom' ? custom : settings.customBridges }
+    saveSettings()
+    await reconnect()
+    return { ok: true }
+  },
   routing: (sender, site) => routingInfo(site),
   bookmarks: () => bookmarks.list(),
   removeBookmark: (sender, url) => { bookmarks.remove(url); sendState() },
@@ -842,6 +936,7 @@ function createWindow() {
   win = new BaseWindow({
     width: 1280, height: 860, minWidth: 720, minHeight: 480,
     title: 'Veil', backgroundColor: '#ffffff',
+    show: !process.env.VEIL_SELFTEST, // self-tests run hidden so nobody's clicks interfere
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 },
   })
   uiView = new WebContentsView({
@@ -885,7 +980,6 @@ app.whenReady().then(async () => {
   community = new Community({ getControl: () => tor.control })
   // Tabs blocked by the kill switch while tor was still connecting load
   // themselves as soon as it's ready.
-  let wasReady = false
   tor.on('status', () => {
     if (tor.ready && !wasReady) {
       wasReady = true
@@ -893,7 +987,8 @@ app.whenReady().then(async () => {
     }
     sendState()
   })
-  await tor.start()
+  loadSettings()
+  await tor.start({ bridges: bridgeLines() })
   relay.torPort = tor.socksPort
   await relay.rotate(identity.nonce)
 
@@ -938,11 +1033,26 @@ app.whenReady().then(async () => {
       serviceWorker: 'serviceWorker' in navigator,
       webgl2: !!document.createElement('canvas').getContext('webgl2'),
       timer: (() => { let a = performance.now(), b; do { b = performance.now() } while (b === a); return b - a })(),
+      light: matchMedia('(prefers-color-scheme: light)').matches,
+      dark: matchMedia('(prefers-color-scheme: dark)').matches,
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      dprConsistent: matchMedia('(resolution: ' + devicePixelRatio + 'dppx)').matches,
+      fonts: (() => {
+        const width = family => { const s = document.createElement('span'); s.style.fontSize = '72px'; s.style.fontFamily = family; s.textContent = 'mmmmmmmmmmlli WwQ'; document.body.append(s); const w = s.offsetWidth; s.remove(); return w }
+        const ctx = document.createElement('canvas').getContext('2d')
+        const measure = font => { ctx.font = font; return ctx.measureText('mmmmmmmmmmlli WwQ').width }
+        return {
+          domHidden: width("'Comic Sans MS', monospace") === width('monospace'),
+          canvasHidden: measure("72px 'Comic Sans MS', monospace") === measure('72px monospace'),
+          checkHidden: !document.fonts.check('16px "Comic Sans MS"'),
+          systemVisible: width('Georgia, monospace') !== width('monospace'),
+        }
+      })(),
       screen: screen.width + 'x' + screen.height,
       inner: innerWidth + 'x' + innerHeight,
     })`)
     const browser = {
-      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView, adblock, sessionFor,
+      ui: uiCommands, bookmarks, closeTab, history: () => history, tabCount: () => tabs.size, uiView, adblock, sessionFor, activeId: () => activeId,
     }
     runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit: newCircuitForSite, browser })
       .then(failed => failed ? 1 : 0)

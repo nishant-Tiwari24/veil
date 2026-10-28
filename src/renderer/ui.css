@@ -56,7 +56,7 @@ svg { width: 14px; height: 14px; display: block; }
 #newtab:hover { background: linear-gradient(#fff, #e6e7e9); color: #000; }
 .spacer { flex: 1; }
 
-#torstatus { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+#torstatus { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap;
   font: 11px var(--ui-font); color: var(--dim); }
 #torstatus .dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--faint); background: #fff; }
 #torstatus.ready .dot { background: var(--red); border-color: var(--red-dark); }

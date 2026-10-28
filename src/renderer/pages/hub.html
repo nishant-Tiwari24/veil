@@ -50,6 +50,7 @@
   .hostcard .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; }
   .invite { margin-top: 6px; padding: 6px 8px; border: 1px dashed var(--red); background: #fff; font: 11px var(--mono); word-break: break-all; user-select: all; }
   .small { font-size: 11px; color: var(--faint); }
+  .radios { display: grid; gap: 6px; margin-bottom: 8px; }
   .links { margin-top: 24px; text-align: center; font-size: 12px; }
   .links a { color: #1a0dab; cursor: pointer; text-decoration: underline; }
 </style>
@@ -98,6 +99,23 @@
       </div>
       <div id="hostmsg" class="msg"></div>
       <div id="hosted" class="hosted"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Connection <span id="connstate" class="badge"></span></h2>
+    <p class="sub">If Tor is blocked where you are, or you don't want your internet provider to see that you use Tor, connect through a bridge. Bridges are unlisted entry relays disguised as ordinary traffic.</p>
+    <div class="box">
+      <div class="radios" id="modes">
+        <label class="check"><input type="radio" name="mode" value="none"> Direct to Tor (fastest)</label>
+        <label class="check"><input type="radio" name="mode" value="snowflake"> Snowflake: looks like a video call, through volunteer proxies (recommended)</label>
+        <label class="check"><input type="radio" name="mode" value="obfs4"> obfs4: looks like random data (Tor Browser's built-in bridges)</label>
+        <label class="check"><input type="radio" name="mode" value="meek"> meek: looks like visiting a big website (slowest, hardest to block)</label>
+        <label class="check"><input type="radio" name="mode" value="custom"> My own bridges</label>
+      </div>
+      <textarea id="custombridges" hidden placeholder="Paste bridge lines from https://bridges.torproject.org, one per line&#10;obfs4 1.2.3.4:443 FINGERPRINT cert=... iat-mode=0"></textarea>
+      <div class="row" style="margin-top:8px"><button id="saveconn">Save and reconnect</button></div>
+      <div id="connmsg" class="msg"></div>
     </div>
   </section>
 
@@ -159,7 +177,7 @@ async function host(fn) {
   try {
     const site = await fn($('inviteonly').checked)
     if (!site) return showMsg('hostmsg', '')
-    showMsg('hostmsg', 'Published! It takes 1–2 minutes to appear on the Tor network. If it doesn't open yet, wait and press ⌘⇧L (new circuit).')
+    showMsg('hostmsg', "Published! It takes 1–2 minutes to appear on the Tor network. If it doesn't open yet, wait and press ⌘⇧L (new circuit).")
     renderHosted()
   } catch (e) { showMsg('hostmsg', e.message.replace(/^.*Error: /, ''), true) }
 }
@@ -191,6 +209,29 @@ async function loadBookmarks() {
   }))
 }
 loadBookmarks()
+
+const MODE_NAMES = { none: 'direct', snowflake: 'Snowflake bridge', obfs4: 'obfs4 bridge', meek: 'meek bridge', custom: 'your bridges' }
+async function loadConnection() {
+  const c = await veil.connection()
+  document.querySelectorAll('input[name=mode]').forEach(r => { r.checked = r.value === c.bridges })
+  $('custombridges').value = (c.customBridges || []).join('\n')
+  $('custombridges').hidden = c.bridges !== 'custom'
+  $('connstate').textContent = 'now: ' + MODE_NAMES[c.bridges]
+  if (!c.bridgesAvailable) showMsg('connmsg', 'Bridges need lyrebird: run npm run bridges:setup once.', true)
+}
+document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = () => { $('custombridges').hidden = r.value !== 'custom' || !r.checked })
+$('saveconn').onclick = async () => {
+  const mode = document.querySelector('input[name=mode]:checked')?.value
+  if (!mode) return
+  showMsg('connmsg', mode === 'none' ? 'Reconnecting...' : 'Reconnecting through a bridge. This can take a minute or two...')
+  try {
+    await veil.setConnection(mode, $('custombridges').value)
+    showMsg('connmsg', 'Saved. Veil will remember this next time.')
+    loadConnection()
+    pollStatus()
+  } catch (e) { showMsg('connmsg', e.message.replace(/^.*Error: /, ''), true) }
+}
+loadConnection()
 
 pollStatus()
 loadDirectory()

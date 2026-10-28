@@ -10,7 +10,8 @@
     "start": "electron .",
     "community:keygen": "node scripts/community-keygen.js",
     "community:sign": "node scripts/community-sign.js",
-    "adblock:update": "node scripts/adblock-update.js"
+    "adblock:update": "node scripts/adblock-update.js",
+    "bridges:setup": "node scripts/bridges-setup.js"
   },
   "author": "",
   "license": "MIT",

@@ -155,7 +155,7 @@ function render() {
   const tor = state.tor || {}
   const status = $('torstatus')
   status.className = tor.ready ? 'ready' : ''
-  $('tortext').textContent = tor.ready ? 'tor: connected' : tor.error ? 'tor: error' : `tor: ${tor.progress || 0}%`
+  $('tortext').textContent = tor.ready ? (tor.bridged ? 'tor: connected via bridge' : 'tor: connected') : tor.error ? 'tor: error' : `tor: ${tor.progress || 0}%`
   status.title = tor.summary || ''
   const bar = $('progressbar')
   bar.style.width = `${tor.progress || 0}%`

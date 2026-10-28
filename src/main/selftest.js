@@ -19,6 +19,22 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   await waitFor(() => tor.ready, 120000, 'tor bootstrap')
   console.log('tor bootstrapped')
 
+  // Internal pages: their scripts must actually run (a syntax error once broke the Hub silently)
+  for (const page of ['hub', 'leaktest', 'history', 'routing']) {
+    const t = createTab(`veil://${page}/`)
+    await waitFor(() => t.view && !t.loading, 15000, page).catch(() => {})
+    await new Promise(r => setTimeout(r, 1500))
+    const errors = await t.view.webContents.executeJavaScript('window.__veilErrors || []').catch(() => ['page did not answer'])
+    const ok = await t.view.webContents.executeJavaScript(({
+      hub: "document.getElementById('sites').children.length > 0 && !!document.querySelector('input[name=mode]:checked') || JSON.stringify({ sites: document.getElementById('sites').children.length, mode: !!document.querySelector('input[name=mode]:checked'), status: document.getElementById('statustext').textContent, msg: document.getElementById('connmsg').textContent })",
+      leaktest: "document.getElementById('fp').children.length > 0",
+      history: "document.getElementById('rows').children.length > 0",
+      routing: "document.getElementById('content').children.length > 0",
+    })[page]).catch(() => false)
+    check(`veil://${page} script runs`, ok === true && !errors.length, ok === true ? errors.join('; ') : `${ok} ${errors.join('; ')}`)
+    browser.closeTab(t.id)
+  }
+
   const net = await networkTest()
   check('traffic exits via Tor', net.tor?.IsTor === true, net.tor?.IP || net.tor?.error)
   check('two sites get different exit IPs', !!net.tor?.IP && net.tor.IP !== net.isolated?.IP,
@@ -40,12 +56,16 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   check('navigator.connection & serviceWorker removed', !fp.connection && !fp.serviceWorker)
   check('WebGL2 disabled', !fp.webgl2)
   check('timer coarsened to 16.67 ms', fp.timer >= 16, `${fp.timer.toFixed(2)} ms`)
+  check('system preferences forced (light, no reduced motion)', fp.light && !fp.dark && !fp.reducedMotion)
+  check('pixel ratio consistent between JS and CSS', fp.dprConsistent)
+  check('installed fonts hidden from DOM, canvas and document.fonts', fp.fonts.domHidden && fp.fonts.canvasHidden && fp.fonts.checkHidden, JSON.stringify(fp.fonts))
+  check('standard system fonts still work', fp.fonts.systemVisible)
   check('screen = viewport', fp.screen === fp.inner, `${fp.screen} / ${fp.inner}`)
 
   // --- everyday browser features ---
   browser.ui.find('Tor', true, false)
   const found = await waitFor(() => tab.find?.matches > 0 && tab.find, 10000, 'find').catch(() => null)
-  check('find in page', !!found, found && `${found.matches} matches for "Tor"`)
+  check('find in page', !!found, found ? `${found.matches} matches for "Tor"` : `active tab ${browser.activeId()}, test tab ${tab.id}`)
   browser.ui.findOpen(false)
 
   browser.ui.zoom(1)
@@ -95,6 +115,18 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   const badge = await browser.uiView.webContents.executeJavaScript(
     `({ hidden: document.getElementById('adblockbtn').hidden, text: document.getElementById('adblockcount').textContent })`)
   check('shield badge shows the count in the toolbar', !badge.hidden && Number(badge.text) === adTab.blocked, `badge: ${badge.text}`)
+
+  // Client hints: a site asks for detailed device/network headers; none may be sent
+  const chTab = createTab('https://httpbin.org/response-headers?Accept-CH=Sec-CH-UA-Platform-Version,Sec-CH-UA-Arch,Sec-CH-UA-Model,Sec-CH-UA-Full-Version-List,Downlink,ECT,RTT,Device-Memory,DPR,Viewport-Width')
+  await waitFor(() => chTab.view && !chTab.loading && chTab.url.includes('response-headers'), 60000, 'accept-ch page').catch(() => {})
+  chTab.view?.webContents.loadURL('https://httpbin.org/headers')
+  const sent = await waitFor(async () => {
+    if (!chTab.view || chTab.loading) return null
+    const text = await chTab.view.webContents.executeJavaScript('document.body.innerText').catch(() => '')
+    try { return JSON.parse(text).headers } catch { return null }
+  }, 60000, 'headers echo').catch(() => null)
+  const leaked = sent ? Object.keys(sent).filter(k => /^(sec-ch-ua-(platform-version|arch|model|full-version-list)|downlink|ect|rtt|device-memory|dpr|viewport-width)$/i.test(k)) : null
+  check('no device or network headers even when a site asks', !!sent && leaked.length === 0, sent ? (leaked.length ? `leaked: ${leaked}` : `sent: ${Object.keys(sent).join(', ')}`) : 'httpbin did not load')
 
   // HTTPS-Only mode: a plain http:// address must end up on https://
   const upTab = createTab('http://example.com/')
