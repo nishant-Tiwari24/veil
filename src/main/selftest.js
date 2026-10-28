@@ -9,7 +9,7 @@ async function waitFor(fn, ms, label) {
   throw new Error(`timed out waiting for ${label}`)
 }
 
-async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit }) {
+async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community, pageProbe, newCircuit, browser }) {
   const results = []
   const check = (name, ok, detail) => {
     results.push(ok)
@@ -38,6 +38,46 @@ async function runSelfTest({ tor, networkTest, createTab, circuitInfo, community
   check('WebRTC removed', fp.rtc === 'undefined')
   check('platform spoofed', fp.platform === 'Win32')
   check('screen = viewport', fp.screen === fp.inner, `${fp.screen} / ${fp.inner}`)
+
+  // --- everyday browser features ---
+  browser.ui.find('Tor', true, false)
+  const found = await waitFor(() => tab.find?.matches > 0 && tab.find, 10000, 'find').catch(() => null)
+  check('find in page', !!found, found && `${found.matches} matches for "Tor"`)
+  browser.ui.findOpen(false)
+
+  browser.ui.zoom(1)
+  check('zoom in', tab.zoom === 0.5 && Math.abs(tab.view.webContents.getZoomLevel() - 0.5) < 0.01)
+  browser.ui.zoom(0)
+
+  browser.ui.bookmark()
+  const marked = browser.bookmarks.has(tab.url)
+  browser.ui.bookmark()
+  check('bookmark toggle', marked && !browser.bookmarks.has(tab.url))
+
+  check('session history recorded', browser.history().some(h => h.url.startsWith('https://check.torproject.org')))
+
+  const before = browser.tabCount()
+  browser.closeTab(tab.id)
+  browser.ui.reopenClosed()
+  check('reopen closed tab', browser.tabCount() === before)
+
+  // Click the real × of a tab with OS-level mouse events, the way a user does.
+  createTab('veil://hub/')
+  await new Promise(r => setTimeout(r, 800))
+  const beforeClose = browser.tabCount()
+  const box = await browser.uiView.webContents.executeJavaScript(`(() => {
+    const r = document.querySelector('#tabs .tab:last-child .close').getBoundingClientRect()
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+  })()`)
+  for (const type of ['mouseDown', 'mouseUp']) {
+    browser.uiView.webContents.sendInputEvent({ type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
+  }
+  await new Promise(r => setTimeout(r, 800))
+  check('clicking × closes the tab', browser.tabCount() === beforeClose - 1, `${beforeClose} → ${browser.tabCount()} tabs`)
+
+  const olTab = createTab('https://www.torproject.org/')
+  const ol = await waitFor(() => olTab.onionLocation, 60000, 'Onion-Location').catch(() => null)
+  check('".onion available" detected', !!ol, ol)
 
   const site = await community.host({ folder: require('path').join(__dirname, '..', '..', 'community', 'sample-site'), inviteOnly: true })
   check('onion service published', /^[a-z2-7]{56}$/.test(site.serviceId), site.url)

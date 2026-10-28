@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>History</title>
+<style>
+  :root { --text:#1b1b1b; --dim:#5f6368; --faint:#9a9da2; --line:#c9cacd; --red:#c4161c;
+          --ui: "Segoe UI", Tahoma, Verdana, sans-serif; --mono: "Courier New", Courier, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--text); font: 13px/1.45 var(--ui); }
+  main { max-width: 820px; margin: 0 auto; padding: 36px 24px 64px; }
+  h1 { font: bold 22px var(--ui); margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 16px; font-size: 12px; }
+  .sub b { color: var(--red); }
+  .bar { display: flex; gap: 6px; margin-bottom: 10px; }
+  input { flex: 1; padding: 5px 7px; border: 1px solid #a5a7ab; border-radius: 2px; font: 13px var(--ui); outline: none; }
+  input:focus { border-color: #6e7a8a; }
+  button { height: 27px; padding: 0 12px; border: 1px solid #a7a9ad; border-radius: 3px; color: #222; font: 12px var(--ui);
+           background: linear-gradient(#fff, #e3e3e3); }
+  button:hover { border-color: #7d8085; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); }
+  th { text-align: left; padding: 5px 10px; font: bold 12px var(--ui); background: linear-gradient(#fff, #e4e5e7); border-bottom: 1px solid var(--line); }
+  td { padding: 6px 10px; border-top: 1px solid #ececed; vertical-align: top; }
+  tr:hover td { background: #f6f6f7; }
+  td.time { width: 70px; color: var(--dim); font: 11px var(--mono); white-space: nowrap; }
+  a { color: #1a0dab; cursor: pointer; text-decoration: underline; }
+  .url { font: 11px var(--mono); color: var(--faint); word-break: break-all; }
+  .empty { padding: 30px; text-align: center; color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>History</h1>
+  <p class="sub">Kept in memory for this session only. <b>Never written to disk</b> &mdash; cleared on New Identity, Panic, or when you quit.</p>
+  <div class="bar">
+    <input id="filter" placeholder="Search history" autofocus>
+    <button id="clear">Clear history</button>
+  </div>
+  <table>
+    <thead><tr><th>Time</th><th>Page</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+const $ = id => document.getElementById(id)
+let items = []
+function render() {
+  const q = $('filter').value.toLowerCase()
+  const rows = items.filter(h => !q || h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q))
+  if (!rows.length) {
+    const tr = document.createElement('tr'); const td = document.createElement('td')
+    td.colSpan = 2; td.className = 'empty'; td.textContent = items.length ? 'No matches.' : 'Nothing here yet.'
+    tr.append(td); return $('rows').replaceChildren(tr)
+  }
+  $('rows').replaceChildren(...rows.map(h => {
+    const tr = document.createElement('tr')
+    const time = document.createElement('td'); time.className = 'time'
+    time.textContent = new Date(h.time).toISOString().slice(11, 16) + ' UTC'
+    const page = document.createElement('td')
+    const a = document.createElement('a'); a.textContent = h.title || h.url; a.onclick = () => veil.open(h.url)
+    const url = document.createElement('div'); url.className = 'url'; url.textContent = h.url
+    page.append(a, url); tr.append(time, page); return tr
+  }))
+}
+$('filter').oninput = render
+$('clear').onclick = async () => { await veil.clearHistory(); items = []; render() }
+veil.history().then(h => { items = h; render() })
+</script>
+</body>
+</html>
