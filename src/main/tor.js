@@ -15,8 +15,12 @@ function findTor() {
 }
 
 // lyrebird runs obfs4 / Snowflake / meek bridges (copied from Tor Browser by
-// `npm run bridges:setup`; Homebrew doesn't package it).
-const LYREBIRD = process.env.VEIL_LYREBIRD || path.join(__dirname, '..', '..', 'bin', 'lyrebird')
+// `npm run bridges:setup`; Homebrew doesn't package it). A packaged Veil keeps
+// it outside the app archive, in Resources/bin, so it can be executed.
+const LYREBIRD = process.env.VEIL_LYREBIRD || [
+  path.join(__dirname, '..', '..', 'bin', 'lyrebird'),
+  process.resourcesPath && path.join(process.resourcesPath, 'bin', 'lyrebird'),
+].find(p => p && fs.existsSync(p)) || path.join(__dirname, '..', '..', 'bin', 'lyrebird')
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -175,4 +179,4 @@ class TorManager extends EventEmitter {
   }
 }
 
-module.exports = { TorManager }
+module.exports = { TorManager, LYREBIRD }
