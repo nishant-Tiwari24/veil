@@ -5,6 +5,7 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/community-security.test.js",
     "community:keygen": "node scripts/community-keygen.js",
     "community:sign": "node scripts/community-sign.js",
     "adblock:update": "node scripts/adblock-update.js",
