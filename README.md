@@ -32,7 +32,7 @@
 
 > ⚠️ **Disclaimer — read this first**
 >
-> Veil is an **educational project** built for a video. It has **not** been
+> Veil is an **educational project** . It has **not** been
 > security-audited. If your safety depends on staying anonymous (journalists,
 > activists, whistleblowers), **use [Tor Browser](https://www.torproject.org/)**,
 > not Veil.
