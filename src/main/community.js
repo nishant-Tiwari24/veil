@@ -38,16 +38,38 @@ function clientAuthKeypair() {
   return { publicB32: base32(pub), privateB64: priv.toString('base64').replace(/=+$/, '') }
 }
 
+// A path can be lexically inside the hosted folder but point outside it via a
+// symlink. Compare real paths, not string prefixes, before serving a file.
+function within(root, file) {
+  const relative = path.relative(root, file)
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+}
+
 function staticServer(root) {
+  const realRoot = fs.realpathSync(root)
   return http.createServer((req, res) => {
     let rel
-    try { rel = decodeURIComponent(new URL(req.url, 'http://x').pathname) } catch { rel = '/' }
-    let file = path.join(root, path.normalize(rel))
-    if (!file.startsWith(root)) { res.writeHead(403); return res.end() }
+    try { rel = decodeURIComponent(new URL(req.url, 'http://x').pathname) } catch {
+      res.writeHead(400); return res.end()
+    }
+    // Do not publish .env, .git or other hidden files just because the user
+    // selected a project folder. Also check backslashes for Windows paths.
+    if (rel.split(/[\\/]/).some(part => part.startsWith('.'))) {
+      res.writeHead(403); return res.end()
+    }
+    let file = path.resolve(realRoot, `.${rel}`)
+    if (!within(realRoot, file)) { res.writeHead(403); return res.end() }
     try {
       if (fs.statSync(file).isDirectory()) file = path.join(file, 'index.html')
-      const body = fs.readFileSync(file)
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream' })
+      const realFile = fs.realpathSync(file)
+      if (!within(realRoot, realFile)) { res.writeHead(403); return res.end() }
+      // An innocent-looking symlink name must not bypass the hidden-file rule.
+      if (path.relative(realRoot, realFile).split(path.sep).some(part => part.startsWith('.'))) {
+        res.writeHead(403); return res.end()
+      }
+      if (!fs.statSync(realFile).isFile()) { res.writeHead(404); return res.end() }
+      const body = fs.readFileSync(realFile)
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(realFile).toLowerCase()] || 'application/octet-stream' })
       res.end(body)
     } catch {
       res.writeHead(404, { 'Content-Type': 'text/plain' })
